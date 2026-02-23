@@ -7,7 +7,7 @@
   // Standard: "snickeri2026" → generera ny med: echo -n "dittlösenord" | sha256sum
   const PASSWORD_HASH = 'c0ab1d2444c03e707670286f837e04561a559f53b4304d36e7abb699df911e90'; // "snickeri2026"
 
-  const REPO_OWNER = 'martin-johanneson';
+  const REPO_OWNER = 'martin-johannesson';
   const REPO_NAME = 'hallandsek';
   const DATA_PATH = 'data/projects.json';
   const IMAGES_DIR = 'images/';
