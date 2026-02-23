@@ -2,17 +2,17 @@
   "projects": [
     {
       "id": "proj-test-1",
-      "name": "Låda ek",
+      "name": "LÃ¥da ek",
       "description": "",
       "date": "2026-02",
       "images": [
-        "images/1771847566243_img_1722.jpeg"
+        "images/1771849595395_img_1717.jpeg"
       ],
-      "cover": "images/1771847566243_img_1722.jpeg",
+      "cover": "images/1771849595395_img_1717.jpeg",
       "purchases": [
         {
           "date": "2026-02-20",
-          "description": "EklÃÂÃÂ¥da 160x250mm",
+          "description": "EklÃÂÃÂÃÂÃÂ¥da 160x250mm",
           "cost": 500
         }
       ]
