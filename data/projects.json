@@ -2,21 +2,18 @@
   "projects": [
     {
       "id": "proj-test-1",
-      "name": "Testprojekt - SkÃ¤rbrÃ¤da i ek",
-      "description": "En enkel skÃ¤rbrÃ¤da i massiv ek med olivolja-finish. Testprojekt fÃ¶r att verifiera att sidan fungerar.",
+      "name": "Eklåda",
+      "description": "",
       "date": "2026-02",
-      "images": [],
-      "cover": "",
+      "images": [
+        "images/1771847566243_img_1722.jpeg"
+      ],
+      "cover": "images/1771847566243_img_1722.jpeg",
       "purchases": [
         {
           "date": "2026-02-20",
-          "description": "Ekplanka 30x300mm",
-          "cost": 250
-        },
-        {
-          "date": "2026-02-21",
-          "description": "Olivolja fÃ¶r finish",
-          "cost": 45
+          "description": "Eklåda 160x250mm",
+          "cost": 500
         }
       ]
     }
