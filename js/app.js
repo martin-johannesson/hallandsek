@@ -1,26 +1,41 @@
-// ===== Publik galleri-sida =====
+// ===== Publik sida med varukorg =====
 
 (function () {
   'use strict';
 
   const DATA_URL = 'data/projects.json';
+  const ORDER_EMAIL = 'martin.johannesson92@gmail.com';
   let projects = [];
+  let cart = []; // {id, name, price, qty}
 
   // --- Init ---
   document.addEventListener('DOMContentLoaded', async () => {
     try {
       const resp = await fetch(DATA_URL);
-      if (!resp.ok) throw new Error('Kunde inte ladda projektdata');
+      if (!resp.ok) throw new Error('Kunde inte ladda produktdata');
       const data = await resp.json();
       projects = data.projects || [];
     } catch (err) {
       console.error(err);
       projects = [];
     }
+    loadCart();
     renderGallery();
     setupOverlay();
     setupLightbox();
+    updateCartUI();
   });
+
+  // --- Cart persistence ---
+  function loadCart() {
+    try {
+      cart = JSON.parse(localStorage.getItem('hallandsek_cart') || '[]');
+    } catch (e) { cart = []; }
+  }
+
+  function saveCart() {
+    localStorage.setItem('hallandsek_cart', JSON.stringify(cart));
+  }
 
   // --- Gallery ---
   function renderGallery() {
@@ -28,12 +43,11 @@
     if (!gallery) return;
 
     if (projects.length === 0) {
-      gallery.innerHTML = '<div class="empty-state"><p>Inga projekt att visa.</p></div>';
+      gallery.innerHTML = '<div class="empty-state"><p>Inga produkter att visa.</p></div>';
       return;
     }
 
     gallery.innerHTML = projects.map(p => {
-      const total = (p.purchases || []).reduce((s, i) => s + (i.cost || 0), 0);
       const coverSrc = p.cover || (p.images && p.images[0]) || '';
       const imgTag = coverSrc
         ? `<img class="card-image" src="${esc(coverSrc)}" alt="${esc(p.name)}" loading="lazy">`
@@ -44,8 +58,7 @@
           ${imgTag}
           <div class="card-body">
             <h2>${esc(p.name)}</h2>
-            <span class="card-date">${esc(p.date || '')}</span>
-            ${total > 0 ? `<div class="card-cost">${formatSEK(total)}</div>` : ''}
+            ${p.price ? `<div class="card-price">${formatSEK(p.price)}</div>` : ''}
           </div>
         </article>`;
     }).join('');
@@ -72,8 +85,6 @@
     const detail = document.getElementById('detail-content');
     if (!overlay || !detail) return;
 
-    const total = (proj.purchases || []).reduce((s, i) => s + (i.cost || 0), 0);
-
     let imagesHtml = '';
     if (proj.images && proj.images.length > 0) {
       imagesHtml = `<div class="detail-images">
@@ -81,28 +92,8 @@
       </div>`;
     }
 
-    let purchasesHtml = '';
-    if (proj.purchases && proj.purchases.length > 0) {
-      purchasesHtml = `
-        <div class="purchases">
-          <h3>Inköpslista</h3>
-          <table>
-            <thead><tr><th>Datum</th><th>Beskrivning</th><th class="cost-cell">Kostnad</th></tr></thead>
-            <tbody>
-              ${proj.purchases.map(p => `
-                <tr>
-                  <td>${esc(p.date || '')}</td>
-                  <td>${esc(p.description || '')}</td>
-                  <td class="cost-cell">${formatSEK(p.cost || 0)}</td>
-                </tr>`).join('')}
-              <tr class="total-row">
-                <td colspan="2">Totalt</td>
-                <td class="cost-cell">${formatSEK(total)}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>`;
-    }
+    const inCart = cart.find(c => c.id === proj.id);
+    const qtyInCart = inCart ? inCart.qty : 0;
 
     detail.innerHTML = `
       <div class="detail-header">
@@ -110,13 +101,38 @@
         <button class="detail-close" id="detail-close">&times;</button>
       </div>
       <div class="detail-body">
-        <div class="detail-date">${esc(proj.date || '')}</div>
         ${proj.description ? `<div class="detail-desc">${esc(proj.description)}</div>` : ''}
         ${imagesHtml}
-        ${purchasesHtml}
+        ${proj.price ? `<div class="detail-price">${formatSEK(proj.price)}</div>` : ''}
+        <div class="detail-actions">
+          ${proj.price ? `
+            <div class="qty-control">
+              <button class="qty-btn" id="qty-minus">-</button>
+              <span id="qty-display">${qtyInCart}</span>
+              <button class="qty-btn" id="qty-plus">+</button>
+            </div>
+            <button class="btn btn-primary" id="add-to-cart">Lägg i varukorg</button>
+          ` : ''}
+        </div>
       </div>`;
 
     document.getElementById('detail-close').addEventListener('click', closeDetail);
+
+    if (proj.price) {
+      let qty = qtyInCart || 1;
+      const qtyDisplay = document.getElementById('qty-display');
+      document.getElementById('qty-minus').addEventListener('click', () => {
+        if (qty > 1) { qty--; qtyDisplay.textContent = qty; }
+      });
+      document.getElementById('qty-plus').addEventListener('click', () => {
+        qty++; qtyDisplay.textContent = qty;
+      });
+      document.getElementById('add-to-cart').addEventListener('click', () => {
+        addToCart(proj, qty);
+        closeDetail();
+      });
+    }
+
     overlay.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   }
@@ -125,6 +141,77 @@
     const overlay = document.getElementById('overlay');
     if (overlay) overlay.classList.add('hidden');
     document.body.style.overflow = '';
+  }
+
+  // --- Cart ---
+  function addToCart(proj, qty) {
+    const existing = cart.find(c => c.id === proj.id);
+    if (existing) {
+      existing.qty = qty;
+    } else {
+      cart.push({ id: proj.id, name: proj.name, price: proj.price, qty });
+    }
+    saveCart();
+    updateCartUI();
+  }
+
+  function removeFromCart(id) {
+    cart = cart.filter(c => c.id !== id);
+    saveCart();
+    updateCartUI();
+    renderCartPanel();
+  }
+
+  function updateCartUI() {
+    const totalItems = cart.reduce((s, c) => s + c.qty, 0);
+    const icon = document.getElementById('cart-icon');
+    const count = document.getElementById('cart-count');
+    if (totalItems > 0) {
+      icon.classList.remove('hidden');
+      count.textContent = totalItems;
+    } else {
+      icon.classList.add('hidden');
+    }
+  }
+
+  function renderCartPanel() {
+    const items = document.getElementById('cart-items');
+    const totalEl = document.getElementById('cart-total');
+    const mailtoEl = document.getElementById('cart-mailto');
+
+    if (cart.length === 0) {
+      items.innerHTML = '<p class="cart-empty">Varukorgen är tom</p>';
+      totalEl.textContent = '';
+      mailtoEl.classList.add('hidden');
+      return;
+    }
+
+    items.innerHTML = cart.map(c => `
+      <div class="cart-item">
+        <div class="cart-item-info">
+          <span class="cart-item-name">${esc(c.name)}</span>
+          <span class="cart-item-detail">${c.qty} st &times; ${formatSEK(c.price)}</span>
+        </div>
+        <div class="cart-item-right">
+          <span class="cart-item-sum">${formatSEK(c.qty * c.price)}</span>
+          <button class="cart-item-remove" data-id="${esc(c.id)}">&times;</button>
+        </div>
+      </div>`).join('');
+
+    items.querySelectorAll('.cart-item-remove').forEach(btn => {
+      btn.addEventListener('click', () => removeFromCart(btn.dataset.id));
+    });
+
+    const total = cart.reduce((s, c) => s + c.qty * c.price, 0);
+    totalEl.textContent = 'Totalt: ' + formatSEK(total);
+
+    // Build mailto
+    const lines = cart.map(c => `${c.qty} st ${c.name} - ${formatSEK(c.qty * c.price)}`);
+    lines.push('', `Totalt: ${formatSEK(total)}`);
+    const subject = encodeURIComponent('Beställning från Hallandsek');
+    const body = encodeURIComponent(`Hej!\n\nJag vill beställa:\n\n${lines.join('\n')}\n\nMitt namn:\nMin adress:\nTelefon:\n`);
+    mailtoEl.href = `mailto:${ORDER_EMAIL}?subject=${subject}&body=${body}`;
+    mailtoEl.classList.remove('hidden');
   }
 
   // --- Lightbox ---
@@ -159,4 +246,11 @@
   function formatSEK(n) {
     return n.toLocaleString('sv-SE') + ' kr';
   }
+
+  // --- Global bindings ---
+  window._toggleCart = () => {
+    const panel = document.getElementById('cart-panel');
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) renderCartPanel();
+  };
 })();

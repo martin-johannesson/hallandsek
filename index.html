@@ -26,8 +26,27 @@
     <img src="" alt="Förstoring">
   </div>
 
+  <!-- Cart -->
+  <div id="cart-icon" class="cart-icon hidden" onclick="window._toggleCart()">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4zM3 6h18M16 10a4 4 0 01-8 0"/></svg>
+    <span id="cart-count">0</span>
+  </div>
+
+  <!-- Cart panel -->
+  <div id="cart-panel" class="cart-panel hidden">
+    <div class="cart-inner">
+      <div class="cart-header">
+        <h2>Varukorg</h2>
+        <button class="detail-close" onclick="window._toggleCart()">&times;</button>
+      </div>
+      <div id="cart-items" class="cart-items"></div>
+      <div id="cart-total" class="cart-total"></div>
+      <a id="cart-mailto" class="btn btn-primary cart-send" href="#">Skicka förfrågan</a>
+    </div>
+  </div>
+
   <footer class="site-footer">
-    &copy; 2026 Martin
+    &copy; 2026 Hallandsek
   </footer>
 
   <script src="js/app.js"></script>
