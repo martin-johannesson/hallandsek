@@ -1,22 +1,6 @@
 {
   "projects": [
     {
-      "id": "proj-test-1",
-      "name": "Låda ek",
-      "description": "",
-      "date": "2026-02",
-      "images": [],
-      "cover": "",
-      "purchases": [
-        {
-          "date": "2026-02-20",
-          "description": "Eklåda 160x250mm",
-          "cost": 500
-        }
-      ],
-      "price": 495
-    },
-    {
       "id": "proj-1771848361744",
       "name": "Tavellist ek 1m",
       "description": "",
@@ -30,6 +14,22 @@
           "date": "2026-02-23",
           "description": "Tavellist",
           "cost": 700
+        }
+      ],
+      "price": 495
+    },
+    {
+      "id": "proj-test-1",
+      "name": "Låda ek",
+      "description": "",
+      "date": "2026-02",
+      "images": [],
+      "cover": "",
+      "purchases": [
+        {
+          "date": "2026-02-20",
+          "description": "Eklåda 160x250mm",
+          "cost": 500
         }
       ],
       "price": 495
