@@ -2,8 +2,8 @@
   "projects": [
     {
       "id": "proj-test-1",
-      "name": "Testprojekt - Skärbräda i ek",
-      "description": "En enkel skärbräda i massiv ek med olivolja-finish. Testprojekt för att verifiera att sidan fungerar.",
+      "name": "Testprojekt - SkÃ¤rbrÃ¤da i ek",
+      "description": "En enkel skÃ¤rbrÃ¤da i massiv ek med olivolja-finish. Testprojekt fÃ¶r att verifiera att sidan fungerar.",
       "date": "2026-02",
       "images": [],
       "cover": "",
@@ -15,7 +15,7 @@
         },
         {
           "date": "2026-02-21",
-          "description": "Olivolja för finish",
+          "description": "Olivolja fÃ¶r finish",
           "cost": 45
         }
       ]
