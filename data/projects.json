@@ -16,7 +16,7 @@
           "cost": 500
         }
       ],
-      "price": 495
+      "price": 500
     },
     {
       "id": "proj-1771848361744",
@@ -41,6 +41,14 @@
       "name": "Kroklist ek 1m",
       "description": "",
       "price": 495,
+      "images": [],
+      "cover": ""
+    },
+    {
+      "id": "proj-1771875142596",
+      "name": "Sängbord",
+      "description": "",
+      "price": 1495,
       "images": [],
       "cover": ""
     }
