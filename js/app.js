@@ -93,7 +93,7 @@
     }
 
     const inCart = cart.find(c => c.id === proj.id);
-    const qtyInCart = inCart ? inCart.qty : 0;
+    const initQty = inCart ? inCart.qty : 1;
 
     detail.innerHTML = `
       <div class="detail-header">
@@ -108,7 +108,7 @@
           ${proj.price ? `
             <div class="qty-control">
               <button class="qty-btn" id="qty-minus">-</button>
-              <span id="qty-display">${qtyInCart}</span>
+              <span id="qty-display">${initQty}</span>
               <button class="qty-btn" id="qty-plus">+</button>
             </div>
             <button class="btn btn-primary" id="add-to-cart">Lägg i varukorg</button>
@@ -119,7 +119,7 @@
     document.getElementById('detail-close').addEventListener('click', closeDetail);
 
     if (proj.price) {
-      let qty = qtyInCart || 1;
+      let qty = initQty;
       const qtyDisplay = document.getElementById('qty-display');
       document.getElementById('qty-minus').addEventListener('click', () => {
         if (qty > 1) { qty--; qtyDisplay.textContent = qty; }
