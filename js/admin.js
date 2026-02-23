@@ -170,9 +170,15 @@
       return;
     }
 
-    list.innerHTML = projects.map(p => `
+    list.innerHTML = projects.map((p, i) => `
       <div class="admin-project-card">
-        <h3>${esc(p.name)}</h3>
+        <div class="card-top-row">
+          <h3>${esc(p.name)}</h3>
+          <div class="order-buttons">
+            <button class="btn btn-sm btn-order" ${i === 0 ? 'disabled' : ''} onclick="window._moveProject('${p.id}', -1)" title="Flytta upp">&uarr;</button>
+            <button class="btn btn-sm btn-order" ${i === projects.length - 1 ? 'disabled' : ''} onclick="window._moveProject('${p.id}', 1)" title="Flytta ner">&darr;</button>
+          </div>
+        </div>
         <div class="meta">${(p.images || []).length} bilder &mdash; ${p.price ? formatSEK(p.price) : 'Inget pris'}</div>
         <div class="actions">
           <button class="btn btn-primary btn-sm" onclick="window._editProject('${p.id}')">Redigera</button>
@@ -378,6 +384,21 @@
   };
 
   window._deleteProject = (id) => deleteProject(id);
+
+  window._moveProject = async (id, direction) => {
+    const idx = projects.findIndex(p => p.id === id);
+    if (idx < 0) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= projects.length) return;
+    [projects[idx], projects[newIdx]] = [projects[newIdx], projects[idx]];
+    renderProjectList();
+    try {
+      await saveProjects('Ändra ordning');
+      showStatus('Ordning sparad!', 'success');
+    } catch (err) {
+      showStatus('Fel vid sparning: ' + err.message, 'error');
+    }
+  };
 
   window._newProject = () => {
     const id = 'proj-' + Date.now();

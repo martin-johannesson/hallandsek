@@ -395,10 +395,45 @@ img { max-width: 100%; display: block; }
   border-bottom: 1px solid var(--border-light);
 }
 
+.admin-project-card .card-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
 .admin-project-card h3 {
   font-weight: 400;
   font-size: 1rem;
   margin-bottom: 0.15rem;
+}
+
+.order-buttons {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.btn-order {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-order:hover:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.btn-order:disabled {
+  opacity: 0.3;
+  cursor: default;
 }
 
 .admin-project-card .meta {
