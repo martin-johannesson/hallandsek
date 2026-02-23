@@ -97,6 +97,12 @@
   }
 
   async function saveProjects(message) {
+    // Hämta aktuell SHA innan sparning (undviker konflikt)
+    try {
+      const current = await ghApi(DATA_PATH);
+      window._fileSha = current.sha;
+    } catch (e) { /* ny fil */ }
+
     const jsonStr = JSON.stringify({ projects }, null, 2) + '\n';
     const bytes = new TextEncoder().encode(jsonStr);
     const content = btoa(String.fromCharCode(...bytes));
