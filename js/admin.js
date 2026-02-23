@@ -82,7 +82,9 @@
   async function loadProjects() {
     try {
       const file = await ghApi(DATA_PATH);
-      const content = atob(file.content.replace(/\n/g, ''));
+      const binary = atob(file.content.replace(/\n/g, ''));
+      const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+      const content = new TextDecoder().decode(bytes);
       const data = JSON.parse(content);
       projects = data.projects || [];
       window._fileSha = file.sha;
@@ -97,7 +99,9 @@
   }
 
   async function saveProjects(message) {
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify({ projects }, null, 2) + '\n')));
+    const jsonStr = JSON.stringify({ projects }, null, 2) + '\n';
+    const bytes = new TextEncoder().encode(jsonStr);
+    const content = btoa(String.fromCharCode(...bytes));
     const body = {
       message: message || 'Uppdatera projects.json',
       content: content
