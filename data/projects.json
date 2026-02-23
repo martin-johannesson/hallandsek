@@ -1,3 +1,24 @@
 {
-  "projects": []
+  "projects": [
+    {
+      "id": "proj-test-1",
+      "name": "Testprojekt - Skärbräda i ek",
+      "description": "En enkel skärbräda i massiv ek med olivolja-finish. Testprojekt för att verifiera att sidan fungerar.",
+      "date": "2026-02",
+      "images": [],
+      "cover": "",
+      "purchases": [
+        {
+          "date": "2026-02-20",
+          "description": "Ekplanka 30x300mm",
+          "cost": 250
+        },
+        {
+          "date": "2026-02-21",
+          "description": "Olivolja för finish",
+          "cost": 45
+        }
+      ]
+    }
+  ]
 }
