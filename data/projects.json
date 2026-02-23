@@ -35,6 +35,14 @@
         }
       ],
       "price": 600
+    },
+    {
+      "id": "proj-1771874590946",
+      "name": "Kroklist ek 1m",
+      "description": "",
+      "price": 700,
+      "images": [],
+      "cover": ""
     }
   ]
 }
