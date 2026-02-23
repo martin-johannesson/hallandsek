@@ -2,7 +2,7 @@
   "projects": [
     {
       "id": "proj-test-1",
-      "name": "EklÃ¥da",
+      "name": "EklÃÂ¥da",
       "description": "",
       "date": "2026-02",
       "images": [
@@ -12,8 +12,25 @@
       "purchases": [
         {
           "date": "2026-02-20",
-          "description": "EklÃ¥da 160x250mm",
+          "description": "EklÃÂ¥da 160x250mm",
           "cost": 500
+        }
+      ]
+    },
+    {
+      "id": "proj-1771848361744",
+      "name": "Tavellist ek 1m",
+      "description": "",
+      "date": "2026-02",
+      "images": [
+        "images/1771848388286_img_2322.jpeg"
+      ],
+      "cover": "images/1771848388286_img_2322.jpeg",
+      "purchases": [
+        {
+          "date": "2026-02-23",
+          "description": "Tavellist",
+          "cost": 700
         }
       ]
     }
