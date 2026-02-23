@@ -33,7 +33,8 @@
           "description": "Tavellist",
           "cost": 700
         }
-      ]
+      ],
+      "price": 600
     }
   ]
 }
