@@ -111,6 +111,13 @@ img { max-width: 100%; display: block; }
   color: var(--text-light);
 }
 
+.btn-add-cart {
+  margin-top: 0.6rem;
+  width: 100%;
+  font-size: 0.8rem;
+  padding: 0.4rem 0;
+}
+
 /* ===== No projects placeholder ===== */
 .empty-state {
   text-align: center;

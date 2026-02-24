@@ -59,14 +59,28 @@
           <div class="card-body">
             <h2>${esc(p.name)}</h2>
             ${p.price ? `<div class="card-price">${formatSEK(p.price)}</div>` : ''}
+            ${p.price ? `<button class="btn btn-primary btn-add-cart" data-id="${esc(p.id)}">Lägg i varukorg</button>` : ''}
           </div>
         </article>`;
     }).join('');
 
     gallery.querySelectorAll('.project-card').forEach(card => {
-      card.addEventListener('click', () => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-add-cart')) return;
         const proj = projects.find(p => p.id === card.dataset.id);
         if (proj) showDetail(proj);
+      });
+    });
+
+    gallery.querySelectorAll('.btn-add-cart').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const proj = projects.find(p => p.id === btn.dataset.id);
+        if (proj) {
+          addToCart(proj, 1);
+          btn.textContent = 'Tillagd!';
+          setTimeout(() => { btn.textContent = 'Lägg i varukorg'; }, 1200);
+        }
       });
     });
   }
