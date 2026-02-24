@@ -59,25 +59,45 @@
           <div class="card-body">
             <h2>${esc(p.name)}</h2>
             ${p.price ? `<div class="card-price">${formatSEK(p.price)}</div>` : ''}
-            ${p.price ? `<button class="btn btn-primary btn-add-cart" data-id="${esc(p.id)}">Lägg i varukorg</button>` : ''}
+            ${p.price ? `
+              <div class="card-actions" data-id="${esc(p.id)}">
+                <div class="qty-control">
+                  <button class="qty-btn card-qty-minus">-</button>
+                  <span class="card-qty-display">1</span>
+                  <button class="qty-btn card-qty-plus">+</button>
+                </div>
+                <button class="btn btn-primary btn-add-cart">Lägg i varukorg</button>
+              </div>` : ''}
           </div>
         </article>`;
     }).join('');
 
     gallery.querySelectorAll('.project-card').forEach(card => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-add-cart')) return;
+        if (e.target.closest('.card-actions')) return;
         const proj = projects.find(p => p.id === card.dataset.id);
         if (proj) showDetail(proj);
       });
     });
 
-    gallery.querySelectorAll('.btn-add-cart').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+    gallery.querySelectorAll('.card-actions').forEach(actions => {
+      let qty = 1;
+      const display = actions.querySelector('.card-qty-display');
+      const proj = projects.find(p => p.id === actions.dataset.id);
+
+      actions.querySelector('.card-qty-minus').addEventListener('click', (e) => {
         e.stopPropagation();
-        const proj = projects.find(p => p.id === btn.dataset.id);
+        if (qty > 1) { qty--; display.textContent = qty; }
+      });
+      actions.querySelector('.card-qty-plus').addEventListener('click', (e) => {
+        e.stopPropagation();
+        qty++; display.textContent = qty;
+      });
+      actions.querySelector('.btn-add-cart').addEventListener('click', (e) => {
+        e.stopPropagation();
         if (proj) {
-          addToCart(proj, 1);
+          addToCart(proj, qty);
+          const btn = e.target;
           btn.textContent = 'Tillagd!';
           setTimeout(() => { btn.textContent = 'Lägg i varukorg'; }, 1200);
         }

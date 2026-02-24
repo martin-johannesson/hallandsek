@@ -111,11 +111,22 @@ img { max-width: 100%; display: block; }
   color: var(--text-light);
 }
 
-.btn-add-cart {
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin-top: 0.6rem;
-  width: 100%;
+}
+
+.card-actions .qty-control {
+  flex-shrink: 0;
+}
+
+.card-actions .btn-add-cart {
+  flex: 1;
   font-size: 0.8rem;
-  padding: 0.4rem 0;
+  padding: 0.4rem 0.5rem;
+  text-align: center;
 }
 
 /* ===== No projects placeholder ===== */
