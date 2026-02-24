@@ -23,8 +23,10 @@
       "name": "Låda ek",
       "description": "",
       "date": "2026-02",
-      "images": [],
-      "cover": "",
+      "images": [
+        "images/1771959962791_img_2358.jpeg"
+      ],
+      "cover": "images/1771959962791_img_2358.jpeg",
       "purchases": [
         {
           "date": "2026-02-20",
