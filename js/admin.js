@@ -51,7 +51,11 @@
     });
 
     const saved = localStorage.getItem('snickeri_token');
-    if (saved) tokenInput.value = saved;
+    if (saved) {
+      tokenInput.value = saved;
+      token = saved;
+      showAdmin();
+    }
   }
 
   async function showAdmin() {
