@@ -38,11 +38,14 @@
     },
     {
       "id": "proj-1771874590946",
-      "name": "Kroklist ek 1m",
+      "name": "Kroklist ek 120cm",
       "description": "",
-      "price": 495,
-      "images": [],
-      "cover": ""
+      "price": 899,
+      "images": [
+        "images/1774870555556_img_2915.jpeg",
+        "images/1774870555587_img_2919.jpeg"
+      ],
+      "cover": "images/1774870555556_img_2915.jpeg"
     },
     {
       "id": "proj-1771876055761",
