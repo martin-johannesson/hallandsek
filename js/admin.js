@@ -91,6 +91,28 @@
       projects = data.projects || [];
       window._fileSha = file.sha;
     } catch (err) {
+      console.error('loadProjects via API:', err.message);
+      if (err.message.includes('401') || err.message.includes('403') || err.message.includes('Bad credentials')) {
+        localStorage.removeItem('snickeri_token');
+        token = '';
+        document.getElementById('login-section').style.display = '';
+        document.querySelector('.admin-panel').classList.remove('active');
+        document.getElementById('login-error').textContent = 'Token ogiltig eller utgången — logga in igen';
+        return;
+      }
+      // Fallback: hämta direkt från sidan (repot är publikt)
+      try {
+        const resp = await fetch('data/projects.json');
+        if (resp.ok) {
+          const data = await resp.json();
+          projects = data.projects || [];
+          window._fileSha = null;
+          console.log('loadProjects fallback OK:', projects.length, 'produkter');
+          return;
+        }
+      } catch (e) {
+        console.error('loadProjects fallback:', e.message);
+      }
       if (err.message.includes('404')) {
         projects = [];
         window._fileSha = null;
