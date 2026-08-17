@@ -82,6 +82,19 @@
   }
 
   async function loadProjects() {
+    // Hämta direkt från sidan (publikt, inget API/token krävs)
+    try {
+      const resp = await fetch('../data/projects.json');
+      if (resp.ok) {
+        const data = await resp.json();
+        projects = data.projects || [];
+        window._fileSha = null;
+        return;
+      }
+    } catch (e) {
+      console.error('loadProjects fetch:', e);
+    }
+    // Fallback: GitHub API
     try {
       const file = await ghApi(DATA_PATH);
       const binary = atob(file.content.replace(/\n/g, ''));
@@ -91,8 +104,8 @@
       projects = data.projects || [];
       window._fileSha = file.sha;
     } catch (err) {
-      console.error('loadProjects via API:', err.message);
-      if (err.message.includes('401') || err.message.includes('403') || err.message.includes('Bad credentials')) {
+      console.error('loadProjects API:', err);
+      if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('Bad credentials'))) {
         localStorage.removeItem('snickeri_token');
         token = '';
         document.getElementById('login-section').style.display = '';
@@ -100,25 +113,7 @@
         document.getElementById('login-error').textContent = 'Token ogiltig eller utgången — logga in igen';
         return;
       }
-      // Fallback: hämta direkt från sidan (repot är publikt)
-      try {
-        const resp = await fetch('data/projects.json');
-        if (resp.ok) {
-          const data = await resp.json();
-          projects = data.projects || [];
-          window._fileSha = null;
-          console.log('loadProjects fallback OK:', projects.length, 'produkter');
-          return;
-        }
-      } catch (e) {
-        console.error('loadProjects fallback:', e.message);
-      }
-      if (err.message.includes('404')) {
-        projects = [];
-        window._fileSha = null;
-      } else {
-        showStatus('Kunde inte ladda produkter: ' + err.message, 'error');
-      }
+      showStatus('Kunde inte ladda produkter: ' + err.message, 'error');
     }
   }
 
