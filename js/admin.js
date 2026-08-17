@@ -10,6 +10,7 @@
   const REPO_NAME = 'hallandsek';
   const DATA_PATH = 'data/projects.json';
   const IMAGES_DIR = 'images/';
+  const API_BASE = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
 
   let token = '';
   let projects = [];
@@ -65,78 +66,26 @@
     renderProjectList();
   }
 
-  // --- GitHub API ---
-  async function ghApi(path, opts = {}) {
-    const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${path}`;
-    const headers = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'application/vnd.github.v3+json',
-      ...opts.headers
-    };
-    const resp = await fetch(url, { ...opts, headers });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.message || `GitHub API ${resp.status}`);
-    }
-    return resp.json();
+  // --- Git blob SHA (beräkna lokalt, ingen API krävs) ---
+  async function gitBlobSha(text) {
+    const content = new TextEncoder().encode(text);
+    const header = new TextEncoder().encode('blob ' + content.length + '\0');
+    const blob = new Uint8Array(header.length + content.length);
+    blob.set(header);
+    blob.set(content, header.length);
+    const hashBuf = await crypto.subtle.digest('SHA-1', blob);
+    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  async function loadProjects() {
-    // Hämta direkt från sidan (publikt, inget API/token krävs)
-    try {
-      const resp = await fetch('../data/projects.json');
-      if (resp.ok) {
-        const data = await resp.json();
-        projects = data.projects || [];
-        window._fileSha = null;
-        return;
-      }
-    } catch (e) {
-      console.error('loadProjects fetch:', e);
-    }
-    // Fallback: GitHub API
-    try {
-      const file = await ghApi(DATA_PATH);
-      const binary = atob(file.content.replace(/\n/g, ''));
-      const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-      const content = new TextDecoder().decode(bytes);
-      const data = JSON.parse(content);
-      projects = data.projects || [];
-      window._fileSha = file.sha;
-    } catch (err) {
-      console.error('loadProjects API:', err);
-      if (err.message && (err.message.includes('401') || err.message.includes('403') || err.message.includes('Bad credentials'))) {
-        localStorage.removeItem('snickeri_token');
-        token = '';
-        document.getElementById('login-section').style.display = '';
-        document.querySelector('.admin-panel').classList.remove('active');
-        document.getElementById('login-error').textContent = 'Token ogiltig eller utgången — logga in igen';
-        return;
-      }
-      showStatus('Kunde inte ladda produkter: ' + err.message, 'error');
-    }
-  }
+  // --- GitHub API (PUT) ---
+  async function ghPut(path, content, sha, message) {
+    const body = { message, content };
+    if (sha) body.sha = sha;
 
-  async function saveProjects(message) {
-    // Hämta aktuell SHA innan sparning (undviker konflikt)
-    try {
-      const current = await ghApi(DATA_PATH);
-      window._fileSha = current.sha;
-    } catch (e) { /* ny fil */ }
-
-    const jsonStr = JSON.stringify({ projects }, null, 2) + '\n';
-    const bytes = new TextEncoder().encode(jsonStr);
-    const content = btoa(String.fromCharCode(...bytes));
-    const body = {
-      message: message || 'Uppdatera projects.json',
-      content: content
-    };
-    if (window._fileSha) body.sha = window._fileSha;
-
-    const resp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${DATA_PATH}`, {
+    const resp = await fetch(API_BASE + path, {
       method: 'PUT',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': 'token ' + token,
         'Accept': 'application/vnd.github.v3+json',
         'Content-Type': 'application/json'
       },
@@ -145,42 +94,46 @@
 
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.message || `Sparfel ${resp.status}`);
+      throw new Error(err.message || 'GitHub API ' + resp.status);
     }
+    return resp.json();
+  }
 
-    const result = await resp.json();
+  // --- Load / Save ---
+  async function loadProjects() {
+    try {
+      const resp = await fetch('../data/projects.json');
+      if (!resp.ok) throw new Error(resp.status);
+      const text = await resp.text();
+      const data = JSON.parse(text);
+      projects = data.projects || [];
+      // Beräkna git blob SHA lokalt — behövs vid sparning
+      window._fileSha = await gitBlobSha(text);
+    } catch (e) {
+      console.error('loadProjects:', e);
+      showStatus('Kunde inte ladda produkter: ' + e.message, 'error');
+    }
+  }
+
+  async function saveProjects(message) {
+    const jsonStr = JSON.stringify({ projects }, null, 2) + '\n';
+    const bytes = new TextEncoder().encode(jsonStr);
+
+    // base64-koda i block (undviker stack overflow vid spread)
+    let binary = '';
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const content = btoa(binary);
+
+    const result = await ghPut(DATA_PATH, content, window._fileSha, message || 'Uppdatera projects.json');
     window._fileSha = result.content.sha;
     return result;
   }
 
   async function uploadImage(filename, base64data) {
-    let sha = null;
-    try {
-      const existing = await ghApi(IMAGES_DIR + filename);
-      sha = existing.sha;
-    } catch (e) { /* file doesn't exist */ }
-
-    const body = {
-      message: `Lägg till bild: ${filename}`,
-      content: base64data
-    };
-    if (sha) body.sha = sha;
-
-    const resp = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${IMAGES_DIR}${filename}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
-    });
-
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.message || `Bilduppladdningsfel ${resp.status}`);
-    }
-    return resp.json();
+    // Nya bilder har ingen SHA (ny fil)
+    return ghPut(IMAGES_DIR + filename, base64data, null, 'Lägg till bild: ' + filename);
   }
 
   // --- Render project list ---
@@ -351,14 +304,19 @@
         currentProjectId = id;
       }
 
-      await saveProjects(`Uppdatera: ${name}`);
+      await saveProjects('Uppdatera: ' + name);
       pendingImages = [];
       showStatus('Sparat!', 'success');
       await loadProjects();
       renderProjectList();
       closeEditor();
     } catch (err) {
-      showStatus('Fel vid sparning: ' + err.message, 'error');
+      console.error('saveProject:', err);
+      if (err instanceof TypeError) {
+        showStatus('Kunde inte nå GitHub — kontrollera internetanslutning och att inget webbläsartillägg blockerar api.github.com', 'error');
+      } else {
+        showStatus('Fel vid sparning: ' + err.message, 'error');
+      }
     }
   }
 
@@ -366,15 +324,20 @@
   async function deleteProject(id) {
     const proj = projects.find(p => p.id === id);
     if (!proj) return;
-    if (!confirm(`Ta bort "${proj.name}"?`)) return;
+    if (!confirm('Ta bort "' + proj.name + '"?')) return;
 
     projects = projects.filter(p => p.id !== id);
     try {
-      await saveProjects(`Ta bort: ${proj.name}`);
-      showStatus(`"${proj.name}" borttaget`, 'success');
+      await saveProjects('Ta bort: ' + proj.name);
+      showStatus('"' + proj.name + '" borttaget', 'success');
       renderProjectList();
     } catch (err) {
-      showStatus('Fel: ' + err.message, 'error');
+      console.error('deleteProject:', err);
+      if (err instanceof TypeError) {
+        showStatus('Kunde inte nå GitHub — kontrollera internetanslutning och att inget webbläsartillägg blockerar api.github.com', 'error');
+      } else {
+        showStatus('Fel: ' + err.message, 'error');
+      }
     }
   }
 
