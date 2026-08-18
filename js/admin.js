@@ -10,7 +10,9 @@
   const REPO_NAME = 'hallandsek';
   const DATA_PATH = 'data/projects.json';
   const IMAGES_DIR = 'images/';
-  const API_BASE = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
+  const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const GH_API = LOCAL ? '/ghproxy/' : 'https://api.github.com/';
+  const API_BASE = GH_API + 'repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/';
 
   let token = '';
   let projects = [];
@@ -64,29 +66,6 @@
     document.querySelector('.admin-panel').classList.add('active');
     await loadProjects();
     renderProjectList();
-    testGitHubApi();
-  }
-
-  async function testGitHubApi() {
-    const results = [];
-    // Test 1: enkel GET utan auth (ingen CORS preflight)
-    try {
-      const r1 = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME);
-      results.push('GET utan auth: ' + r1.status);
-    } catch (e) {
-      results.push('GET utan auth: BLOCKERAD (' + e.name + ': ' + e.message + ')');
-    }
-    // Test 2: GET med auth (kräver CORS preflight)
-    try {
-      const r2 = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME, {
-        headers: { 'Authorization': 'token ' + token }
-      });
-      results.push('GET med auth: ' + r2.status);
-    } catch (e) {
-      results.push('GET med auth: BLOCKERAD (' + e.name + ': ' + e.message + ')');
-    }
-    console.log('GitHub API diagnostik:', results);
-    showStatus('GitHub API: ' + results.join(' | '), results.some(r => r.includes('BLOCKERAD')) ? 'error' : 'info');
   }
 
   // --- Git blob SHA (beräkna lokalt, ingen API krävs) ---
@@ -336,7 +315,7 @@
     } catch (err) {
       console.error('saveProject:', err);
       if (err instanceof TypeError) {
-        showStatus('Kunde inte nå GitHub — kontrollera internetanslutning och att inget webbläsartillägg blockerar api.github.com', 'error');
+        showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
       } else {
         showStatus('Fel vid sparning: ' + err.message, 'error');
       }
@@ -357,7 +336,7 @@
     } catch (err) {
       console.error('deleteProject:', err);
       if (err instanceof TypeError) {
-        showStatus('Kunde inte nå GitHub — kontrollera internetanslutning och att inget webbläsartillägg blockerar api.github.com', 'error');
+        showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
       } else {
         showStatus('Fel: ' + err.message, 'error');
       }
