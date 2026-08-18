@@ -64,6 +64,29 @@
     document.querySelector('.admin-panel').classList.add('active');
     await loadProjects();
     renderProjectList();
+    testGitHubApi();
+  }
+
+  async function testGitHubApi() {
+    const results = [];
+    // Test 1: enkel GET utan auth (ingen CORS preflight)
+    try {
+      const r1 = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME);
+      results.push('GET utan auth: ' + r1.status);
+    } catch (e) {
+      results.push('GET utan auth: BLOCKERAD (' + e.name + ': ' + e.message + ')');
+    }
+    // Test 2: GET med auth (kräver CORS preflight)
+    try {
+      const r2 = await fetch('https://api.github.com/repos/' + REPO_OWNER + '/' + REPO_NAME, {
+        headers: { 'Authorization': 'token ' + token }
+      });
+      results.push('GET med auth: ' + r2.status);
+    } catch (e) {
+      results.push('GET med auth: BLOCKERAD (' + e.name + ': ' + e.message + ')');
+    }
+    console.log('GitHub API diagnostik:', results);
+    showStatus('GitHub API: ' + results.join(' | '), results.some(r => r.includes('BLOCKERAD')) ? 'error' : 'info');
   }
 
   // --- Git blob SHA (beräkna lokalt, ingen API krävs) ---
