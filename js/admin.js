@@ -326,7 +326,6 @@
     } catch (err) {
       console.error('saveProject:', err);
       showStatus('Fel vid sparning: ' + err.message, 'error');
-      }
     }
   }
 
