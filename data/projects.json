@@ -16,7 +16,7 @@
           "cost": 700
         }
       ],
-      "price": 495
+      "price": 0
     },
     {
       "id": "proj-test-1",
@@ -51,7 +51,7 @@
       "id": "proj-1771876055761",
       "name": "Sängbord ek",
       "description": "",
-      "price": 1595,
+      "price": 1495,
       "images": [],
       "cover": ""
     }
