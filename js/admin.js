@@ -69,6 +69,13 @@
       showStatus('Adminsidan kan inte köras från filsystemet. Öppna via hallandsek.se/admin/ eller kör python3 admin_server.py', 'error');
     }
 
+    // Testa API-anslutning direkt vid inloggning
+    try {
+      await ghFetch(DATA_PATH);
+    } catch (e) {
+      showStatus('GitHub API ej nåbart: ' + e.message + '. Har du en ad-blocker som blockerar api.github.com?', 'error');
+    }
+
     await loadProjects();
     renderProjectList();
   }
@@ -318,14 +325,7 @@
       closeEditor();
     } catch (err) {
       console.error('saveProject:', err);
-      if (err instanceof TypeError) {
-        if (LOCAL) {
-          showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
-        } else {
-          showStatus('Kunde inte nå GitHub API. Kontrollera nätverksanslutningen eller prova en annan webbläsare.', 'error');
-        }
-      } else {
-        showStatus('Fel vid sparning: ' + err.message, 'error');
+      showStatus('Fel vid sparning: ' + err.message, 'error');
       }
     }
   }
@@ -343,15 +343,7 @@
       renderProjectList();
     } catch (err) {
       console.error('deleteProject:', err);
-      if (err instanceof TypeError) {
-        if (LOCAL) {
-          showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
-        } else {
-          showStatus('Kunde inte nå GitHub API. Kontrollera nätverksanslutningen eller prova en annan webbläsare.', 'error');
-        }
-      } else {
-        showStatus('Fel: ' + err.message, 'error');
-      }
+      showStatus('Fel: ' + err.message, 'error');
     }
   }
 
