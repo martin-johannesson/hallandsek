@@ -64,36 +64,25 @@
   async function showAdmin() {
     document.getElementById('login-section').style.display = 'none';
     document.querySelector('.admin-panel').classList.add('active');
+
+    if (location.protocol === 'file:') {
+      showStatus('Adminsidan kan inte köras från filsystemet. Öppna via hallandsek.se/admin/ eller kör python3 admin_server.py', 'error');
+    }
+
     await loadProjects();
     renderProjectList();
   }
 
-  // --- Git blob SHA (beräkna lokalt, ingen API krävs) ---
-  async function gitBlobSha(text) {
-    const content = new TextEncoder().encode(text);
-    const header = new TextEncoder().encode('blob ' + content.length + '\0');
-    const blob = new Uint8Array(header.length + content.length);
-    blob.set(header);
-    blob.set(content, header.length);
-    const hashBuf = await crypto.subtle.digest('SHA-1', blob);
-    return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  // --- GitHub API (PUT) ---
-  async function ghPut(path, content, sha, message) {
-    const body = { message, content };
-    if (sha) body.sha = sha;
-
+  // --- GitHub API helpers ---
+  async function ghFetch(path, options) {
     const resp = await fetch(API_BASE + path, {
-      method: 'PUT',
+      ...options,
       headers: {
-        'Authorization': 'token ' + token,
-        'Accept': 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body)
+        'Authorization': 'Bearer ' + token,
+        'Accept': 'application/vnd.github+json',
+        ...(options && options.headers)
+      }
     });
-
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(err.message || 'GitHub API ' + resp.status);
@@ -101,20 +90,34 @@
     return resp.json();
   }
 
+  async function ghPut(path, content, sha, message) {
+    const body = { message, content };
+    if (sha) body.sha = sha;
+    return ghFetch(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+  }
+
   // --- Load / Save ---
   async function loadProjects() {
     try {
-      const resp = await fetch('../data/projects.json');
+      // Ladda från statisk fil (fungerar alltid, ingen CORS)
+      const resp = await fetch('../data/projects.json?_=' + Date.now());
       if (!resp.ok) throw new Error(resp.status);
       const text = await resp.text();
       const data = JSON.parse(text);
       projects = data.projects || [];
-      // Beräkna git blob SHA lokalt — behövs vid sparning
-      window._fileSha = await gitBlobSha(text);
     } catch (e) {
       console.error('loadProjects:', e);
       showStatus('Kunde inte ladda produkter: ' + e.message, 'error');
     }
+  }
+
+  async function getFileSha() {
+    const data = await ghFetch(DATA_PATH);
+    return data.sha;
   }
 
   async function saveProjects(message) {
@@ -128,8 +131,9 @@
     }
     const content = btoa(binary);
 
-    const result = await ghPut(DATA_PATH, content, window._fileSha, message || 'Uppdatera projects.json');
-    window._fileSha = result.content.sha;
+    // Hämta aktuell SHA från GitHub API precis innan sparning
+    const sha = await getFileSha();
+    const result = await ghPut(DATA_PATH, content, sha, message || 'Uppdatera projects.json');
     return result;
   }
 
@@ -315,7 +319,11 @@
     } catch (err) {
       console.error('saveProject:', err);
       if (err instanceof TypeError) {
-        showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
+        if (LOCAL) {
+          showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
+        } else {
+          showStatus('Kunde inte nå GitHub API. Kontrollera nätverksanslutningen eller prova en annan webbläsare.', 'error');
+        }
       } else {
         showStatus('Fel vid sparning: ' + err.message, 'error');
       }
@@ -336,7 +344,11 @@
     } catch (err) {
       console.error('deleteProject:', err);
       if (err instanceof TypeError) {
-        showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
+        if (LOCAL) {
+          showStatus('Kunde inte nå GitHub. Kör: python3 admin_server.py och öppna localhost:8000/admin/', 'error');
+        } else {
+          showStatus('Kunde inte nå GitHub API. Kontrollera nätverksanslutningen eller prova en annan webbläsare.', 'error');
+        }
       } else {
         showStatus('Fel: ' + err.message, 'error');
       }
