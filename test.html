@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>API-test</title></head>
+<body>
+<h2>GitHub API-test</h2>
+<pre id="log">Testar...</pre>
+<script>
+var log = document.getElementById('log');
+function w(s) { log.textContent += '\n' + s; }
+
+// Test 1: enkel GET utan headers
+fetch('https://api.github.com/zen')
+  .then(function(r) { return r.text().then(function(t) { w('1 Enkel GET: OK - ' + t); }); })
+  .catch(function(e) { w('1 Enkel GET: FEL - ' + e.name + ' ' + e.message); })
+  .then(function() {
+    // Test 2: GET med custom header (triggar CORS preflight)
+    return fetch('https://api.github.com/zen', { headers: { 'Accept': 'application/vnd.github+json' } })
+      .then(function(r) { return r.text().then(function(t) { w('2 Custom header: OK - ' + t); }); })
+      .catch(function(e) { w('2 Custom header: FEL - ' + e.name + ' ' + e.message); });
+  })
+  .then(function() {
+    // Test 3: GET med Authorization header
+    return fetch('https://api.github.com/zen', { headers: { 'Authorization': 'Bearer dummy' } })
+      .then(function(r) { w('3 Auth header: OK - status ' + r.status); })
+      .catch(function(e) { w('3 Auth header: FEL - ' + e.name + ' ' + e.message); });
+  })
+  .then(function() { w('\nKlart!'); });
+</script>
+</body>
+</html>
