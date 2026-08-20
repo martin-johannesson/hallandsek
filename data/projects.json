@@ -2,7 +2,7 @@
   "projects": [
     {
       "id": "proj-1771848361744",
-      "name": "Tavellist ek 1m",
+      "name": "Tavellist ek 1",
       "description": "",
       "date": "2026-02",
       "images": [
@@ -51,7 +51,7 @@
       "id": "proj-1771876055761",
       "name": "Sängbord ek",
       "description": "",
-      "price": 0,
+      "price": 1495,
       "images": [],
       "cover": ""
     }
