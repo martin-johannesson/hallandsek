@@ -10,7 +10,7 @@
   const REPO_NAME = 'hallandsek';
   const DATA_PATH = 'data/projects.json';
   const IMAGES_DIR = 'images/';
-  const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  const LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1' || location.hostname.startsWith('192.168.');
   const GH_API = LOCAL ? '/ghproxy/' : 'https://api.github.com/';
   const API_BASE = GH_API + 'repos/' + REPO_OWNER + '/' + REPO_NAME + '/contents/';
 
@@ -36,6 +36,12 @@
     const tokenInput = document.getElementById('token-input');
     const errorEl = document.getElementById('login-error');
 
+    // Lokalt: proxyn har token — göm fältet
+    if (LOCAL) {
+      tokenInput.style.display = 'none';
+      token = 'proxy';
+    }
+
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const hash = await sha256(passwordInput.value);
@@ -43,21 +49,25 @@
         errorEl.textContent = 'Fel lösenord';
         return;
       }
-      token = tokenInput.value.trim();
-      if (!token) {
-        errorEl.textContent = 'GitHub-token krävs';
-        return;
+      if (!LOCAL) {
+        token = tokenInput.value.trim();
+        if (!token) {
+          errorEl.textContent = 'GitHub-token krävs';
+          return;
+        }
+        localStorage.setItem('snickeri_token', token);
       }
-      localStorage.setItem('snickeri_token', token);
       errorEl.textContent = '';
       showAdmin();
     });
 
-    const saved = localStorage.getItem('snickeri_token');
-    if (saved) {
-      tokenInput.value = saved;
-      token = saved;
-      showAdmin();
+    if (!LOCAL) {
+      const saved = localStorage.getItem('snickeri_token');
+      if (saved) {
+        tokenInput.value = saved;
+        token = saved;
+        showAdmin();
+      }
     }
   }
 
@@ -82,14 +92,10 @@
 
   // --- GitHub API helpers ---
   async function ghFetch(path, options) {
-    const resp = await fetch(API_BASE + path, {
-      ...options,
-      headers: {
-        'Authorization': 'Bearer ' + token,
-        'Accept': 'application/vnd.github+json',
-        ...(options && options.headers)
-      }
-    });
+    const headers = { 'Accept': 'application/vnd.github+json' };
+    if (!LOCAL) headers['Authorization'] = 'Bearer ' + token;
+    if (options && options.headers) Object.assign(headers, options.headers);
+    const resp = await fetch(API_BASE + path, { ...options, headers });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(err.message || 'GitHub API ' + resp.status);
@@ -123,7 +129,7 @@
   }
 
   async function getFileSha() {
-    const data = await ghFetch(DATA_PATH);
+    const data = await ghFetch(DATA_PATH, { cache: 'no-store' });
     return data.sha;
   }
 
