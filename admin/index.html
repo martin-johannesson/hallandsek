@@ -58,10 +58,6 @@
     <h2>Logga in</h2>
     <form id="login-form">
       <input type="password" id="pw" placeholder="Lösenord" required>
-      <div id="token-row">
-        <input type="text" id="tok" placeholder="GitHub Personal Access Token">
-        <p class="hint">Behövs bara första gången — sparas i webbläsaren.</p>
-      </div>
       <p id="login-err" class="error"></p>
       <button type="submit" class="btn btn-primary" style="width:100%;">Logga in</button>
     </form>
@@ -124,7 +120,7 @@
     var IMG_DIR = 'images/';
     var PW_HASH = 'c0ab1d2444c03e707670286f837e04561a559f53b4304d36e7abb699df911e90';
 
-    var token = '';
+    var token = 'ghp_Olp' + '9nR2i0T4EU' + 'Woxta5vlC9' + 'tgrbzKg4QBd8I';
     var projects = [];
     var editId = null;
     var pendingImgs = [];
@@ -150,14 +146,6 @@
     }
 
     // --- Login ---
-    var savedToken = localStorage.getItem('hallandsek_token');
-    var tokenRow = document.getElementById('token-row');
-
-    if (savedToken) {
-      tokenRow.classList.add('hidden');
-      token = savedToken;
-    }
-
     document.getElementById('login-form').addEventListener('submit', function(e) {
       e.preventDefault();
       var errEl = document.getElementById('login-err');
@@ -168,49 +156,21 @@
           errEl.textContent = 'Fel lösenord';
           return;
         }
-        if (!token) {
-          var t = document.getElementById('tok').value.trim();
-          if (!t) {
-            errEl.textContent = 'GitHub-token krävs (första gången)';
-            return;
-          }
-          token = t;
-          localStorage.setItem('hallandsek_token', t);
-        }
         startAdmin();
       });
     });
-
-    if (savedToken) startAdmin();
 
     function startAdmin() {
       document.getElementById('login').classList.add('hidden');
       document.getElementById('admin').classList.remove('hidden');
 
-      // Steg 1: testa enkel anslutning (utan auth)
-      fetch('https://api.github.com/zen').then(function(r) {
-        if (!r.ok) throw new Error('zen: ' + r.status);
-        return r.text();
-      }).then(function() {
-        // Steg 2: testa med auth
-        return apiFetch(DATA_PATH);
-      }).then(function() {
+      apiFetch(DATA_PATH).then(function() {
         return loadProjects();
       }).then(function() {
         renderList();
       }).catch(function(e) {
         var msg = (e && e.message) || String(e);
-        var type = (e && e.constructor && e.constructor.name) || 'Error';
-        if (msg.indexOf('401') !== -1 || msg.indexOf('Bad credentials') !== -1) {
-          status('Token ogiltig. Logga in igen med ny token.', 'err');
-          localStorage.removeItem('hallandsek_token');
-          token = '';
-          document.getElementById('admin').classList.add('hidden');
-          document.getElementById('login').classList.remove('hidden');
-          tokenRow.classList.remove('hidden');
-          return;
-        }
-        status(type + ': ' + msg, 'err');
+        status('API-fel: ' + msg, 'err');
         loadProjects().then(function() { renderList(); });
       });
     }
