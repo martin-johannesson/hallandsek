@@ -5,6 +5,47 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — Hallandsek</title>
   <link rel="stylesheet" href="../css/style.css">
+  <style>
+    .admin-wrap { max-width: 700px; margin: 0 auto; padding: 2rem 1.25rem; }
+    .login-box { max-width: 360px; margin: 4rem auto; padding: 2rem; background: var(--bg-card); border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .login-box h2 { text-align: center; font-weight: 400; letter-spacing: 0.08em; text-transform: uppercase; font-size: 1rem; margin-bottom: 1.5rem; }
+    .login-box input { width: 100%; padding: 0.65rem 0.75rem; margin-bottom: 0.75rem; border: 1px solid var(--border); font-size: 0.95rem; font-family: inherit; background: var(--bg); box-sizing: border-box; }
+    .login-box .error { color: #9e3030; font-size: 0.85rem; margin-bottom: 0.5rem; text-align: center; }
+    .login-box .hint { color: var(--text-light); font-size: 0.8rem; margin-bottom: 0.75rem; }
+    .hidden { display: none !important; }
+
+    .prod-item { padding: 1rem 0; border-bottom: 1px solid var(--border-light); }
+    .prod-item:last-child { border-bottom: none; }
+    .prod-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .prod-top h3 { font-weight: 400; font-size: 1rem; margin: 0; }
+    .prod-meta { font-size: 0.8rem; color: var(--text-light); margin: 0.25rem 0 0.5rem; }
+    .prod-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .order-btns { display: flex; gap: 0.25rem; margin-left: auto; }
+
+    .editor-box { background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius); box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 2rem; }
+    .editor-box h2 { font-weight: 400; font-size: 1.1rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); }
+    .editor-btns { display: flex; gap: 0.5rem; margin-top: 1.5rem; }
+    .editor-btns .btn-primary { flex: 1; }
+
+    .thumbs { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.5rem 0 1rem; }
+    .thumb { position: relative; width: 100px; height: 75px; }
+    .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .thumb .remove { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; background: #9e3030; color: #fff; border: none; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .thumb .cover-btn { position: absolute; bottom: 2px; left: 2px; background: rgba(0,0,0,0.5); color: #fff; border: none; font-size: 0.6rem; padding: 1px 5px; cursor: pointer; }
+    .thumb.is-cover { outline: 2px solid var(--accent); }
+    .upload-area { border: 1px dashed var(--border); padding: 1.5rem; text-align: center; cursor: pointer; color: var(--text-light); font-size: 0.9rem; margin-bottom: 1rem; }
+    .upload-area:hover { border-color: var(--text); }
+
+    .status { padding: 0.6rem 1rem; margin-bottom: 1rem; font-size: 0.85rem; border-radius: var(--radius); }
+    .status.ok { background: #f0f7f0; color: #2d5f2d; }
+    .status.err { background: #fdf0f0; color: #9e3030; }
+    .status.info { background: #f0f4f7; color: #2d4a5f; }
+
+    @media (max-width: 600px) {
+      .admin-wrap { padding: 1.25rem 1rem; }
+      .thumb { width: 80px; height: 60px; }
+    }
+  </style>
 </head>
 <body>
   <header class="site-header">
@@ -13,75 +54,433 @@
   </header>
 
   <!-- Login -->
-  <div id="login-section">
-    <div class="admin-login">
-      <h2>Logga in</h2>
-      <form id="login-form">
-        <input type="text" id="password-input" placeholder="Lösenord" required>
-        <input type="text" id="token-input" placeholder="GitHub Personal Access Token">
-        <p id="login-error" class="error"></p>
-        <button type="submit" class="btn btn-primary" style="width:100%;">Logga in</button>
-      </form>
-    </div>
+  <div id="login" class="login-box">
+    <h2>Logga in</h2>
+    <form id="login-form">
+      <input type="password" id="pw" placeholder="Lösenord" required>
+      <div id="token-row">
+        <input type="text" id="tok" placeholder="GitHub Personal Access Token">
+        <p class="hint">Behövs bara första gången — sparas i webbläsaren.</p>
+      </div>
+      <p id="login-err" class="error"></p>
+      <button type="submit" class="btn btn-primary" style="width:100%;">Logga in</button>
+    </form>
   </div>
 
-  <!-- Admin panel -->
-  <div class="admin-panel">
-    <main class="container">
-      <div id="status" class="status-msg" style="display:none;"></div>
+  <!-- Admin -->
+  <div id="admin" class="admin-wrap hidden">
+    <div id="status-bar"></div>
 
-      <!-- Project list -->
-      <div id="project-list-section">
-        <div class="toolbar">
-          <h2>Produkter</h2>
-          <button class="btn btn-primary" onclick="window._newProject()">+ Ny produkt</button>
-        </div>
-        <div id="project-list" class="admin-projects"></div>
+    <div id="list-view">
+      <div class="toolbar">
+        <h2>Produkter</h2>
+        <button class="btn btn-primary" id="btn-new">+ Ny produkt</button>
       </div>
+      <div id="prod-list"></div>
+    </div>
 
-      <!-- Editor -->
-      <div id="editor" class="editor-panel" style="display:none;">
-        <div class="toolbar">
-          <h2 id="editor-title">Redigera produkt</h2>
-          <div>
-            <button class="btn btn-secondary" onclick="window._closeEditor()">Avbryt</button>
-            <button class="btn btn-primary" onclick="window._saveProject()">Spara</button>
-          </div>
-        </div>
-
+    <div id="edit-view" class="hidden">
+      <div class="editor-box">
+        <h2 id="edit-title">Redigera produkt</h2>
         <div class="form-group">
-          <label for="proj-name">Namn</label>
-          <input type="text" id="proj-name" placeholder="T.ex. Skärbräda i ek">
+          <label>Namn</label>
+          <input type="text" id="ed-name" placeholder="T.ex. Skärbräda i ek">
         </div>
-
         <div class="form-group">
-          <label for="proj-desc">Beskrivning</label>
-          <textarea id="proj-desc" placeholder="Beskriv produkten..."></textarea>
+          <label>Beskrivning</label>
+          <textarea id="ed-desc" placeholder="Beskriv produkten..."></textarea>
         </div>
-
         <div class="form-group">
-          <label for="proj-price">Pris (SEK)</label>
-          <input type="number" id="proj-price" placeholder="0" step="1" min="0">
+          <label>Pris (SEK, 0 = visas utan pris)</label>
+          <input type="number" id="ed-price" placeholder="0" min="0" step="1">
         </div>
-
-        <!-- Existing images -->
-        <h3 style="margin-bottom:0.5rem;">Bilder</h3>
-        <div id="image-thumbs" class="image-thumbnails"></div>
-
-        <!-- Upload new images -->
-        <div id="image-upload-area" class="image-upload-area">
-          Klicka eller dra bilder hit
-          <input type="file" id="image-file-input" accept="image/*" multiple style="display:none;">
+        <label style="font-size:0.75rem;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-light);margin-bottom:0.4rem;display:block;">Bilder</label>
+        <div id="ed-thumbs" class="thumbs"></div>
+        <div id="upload-area" class="upload-area">
+          Tryck här eller dra bilder hit
+          <input type="file" id="file-input" accept="image/*" multiple style="display:none;">
         </div>
-        <div id="pending-thumbs" class="image-thumbnails"></div>
+        <div id="pending-thumbs" class="thumbs"></div>
+        <div class="editor-btns">
+          <button class="btn btn-secondary" id="btn-cancel">Avbryt</button>
+          <button class="btn btn-primary" id="btn-save">Spara</button>
+        </div>
       </div>
-    </main>
+    </div>
   </div>
 
   <footer class="site-footer">
     &copy; 2026 Hallandsek — <a href="../index.html">Tillbaka till butiken</a>
   </footer>
 
-  <script src="../js/admin.js?v=8"></script>
+  <script>
+  (function() {
+    'use strict';
+
+    var OWNER = 'martin-johannesson';
+    var REPO = 'hallandsek';
+    var API = 'https://api.github.com/repos/' + OWNER + '/' + REPO + '/contents/';
+    var DATA_PATH = 'data/projects.json';
+    var IMG_DIR = 'images/';
+    var PW_HASH = 'c0ab1d2444c03e707670286f837e04561a559f53b4304d36e7abb699df911e90';
+
+    var token = '';
+    var projects = [];
+    var editId = null;
+    var pendingImgs = [];
+
+    // --- SHA-256 ---
+    function sha256(s) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)).then(function(buf) {
+        return Array.from(new Uint8Array(buf)).map(function(b) { return b.toString(16).padStart(2, '0'); }).join('');
+      });
+    }
+
+    // --- Helpers ---
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function status(msg, type) {
+      var el = document.getElementById('status-bar');
+      el.innerHTML = '<div class="status ' + type + '">' + esc(msg) + '</div>';
+      if (type === 'ok') setTimeout(function() { el.innerHTML = ''; }, 3000);
+    }
+
+    // --- Login ---
+    var savedToken = localStorage.getItem('hallandsek_token');
+    var tokenRow = document.getElementById('token-row');
+
+    if (savedToken) {
+      tokenRow.classList.add('hidden');
+      token = savedToken;
+    }
+
+    document.getElementById('login-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var errEl = document.getElementById('login-err');
+      errEl.textContent = '';
+
+      sha256(document.getElementById('pw').value).then(function(hash) {
+        if (hash !== PW_HASH) {
+          errEl.textContent = 'Fel lösenord';
+          return;
+        }
+        if (!token) {
+          var t = document.getElementById('tok').value.trim();
+          if (!t) {
+            errEl.textContent = 'GitHub-token krävs (första gången)';
+            return;
+          }
+          token = t;
+          localStorage.setItem('hallandsek_token', t);
+        }
+        startAdmin();
+      });
+    });
+
+    if (savedToken) startAdmin();
+
+    function startAdmin() {
+      document.getElementById('login').classList.add('hidden');
+      document.getElementById('admin').classList.remove('hidden');
+
+      apiFetch(DATA_PATH).then(function() {
+        return loadProjects();
+      }).then(function() {
+        renderList();
+      }).catch(function(e) {
+        if (e.message.indexOf('401') !== -1 || e.message.indexOf('Bad credentials') !== -1) {
+          status('Token ogiltig. Logga in igen med ny token.', 'err');
+          localStorage.removeItem('hallandsek_token');
+          token = '';
+          document.getElementById('admin').classList.add('hidden');
+          document.getElementById('login').classList.remove('hidden');
+          tokenRow.classList.remove('hidden');
+          return;
+        }
+        status('Kunde inte nå GitHub: ' + e.message, 'err');
+        loadProjects().then(function() { renderList(); });
+      });
+    }
+
+    // --- GitHub API ---
+    function apiFetch(path, opts) {
+      var headers = {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': 'Bearer ' + token
+      };
+      if (opts && opts.headers) {
+        var k; for (k in opts.headers) headers[k] = opts.headers[k];
+      }
+      var fetchOpts = { headers: headers, cache: 'no-store' };
+      if (opts) {
+        if (opts.method) fetchOpts.method = opts.method;
+        if (opts.body) fetchOpts.body = opts.body;
+      }
+      return fetch(API + path, fetchOpts).then(function(resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function() { return {}; }).then(function(body) {
+            throw new Error(body.message || 'GitHub API ' + resp.status);
+          });
+        }
+        return resp.json();
+      });
+    }
+
+    function apiPut(path, content, sha, msg) {
+      var body = { message: msg, content: content };
+      if (sha) body.sha = sha;
+      return apiFetch(path, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    }
+
+    // --- Load / Save ---
+    function loadProjects() {
+      return fetch('../data/projects.json?_=' + Date.now()).then(function(resp) {
+        if (!resp.ok) throw new Error(resp.status);
+        return resp.json();
+      }).then(function(data) {
+        projects = data.projects || [];
+      }).catch(function(e) {
+        status('Kunde inte ladda produkter: ' + e.message, 'err');
+      });
+    }
+
+    function saveProjects(msg) {
+      var json = JSON.stringify({ projects: projects }, null, 2) + '\n';
+      var bytes = new TextEncoder().encode(json);
+      var bin = '';
+      for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      var b64 = btoa(bin);
+
+      return apiFetch(DATA_PATH).then(function(meta) {
+        return apiPut(DATA_PATH, b64, meta.sha, msg || 'Uppdatera projects.json');
+      });
+    }
+
+    function uploadImage(filename, base64data) {
+      return apiPut(IMG_DIR + filename, base64data, null, 'Bild: ' + filename);
+    }
+
+    // --- Product list ---
+    function renderList() {
+      var el = document.getElementById('prod-list');
+      if (projects.length === 0) {
+        el.innerHTML = '<p style="color:var(--text-light);padding:2rem 0;">Inga produkter. Skapa en ny!</p>';
+        return;
+      }
+      el.innerHTML = projects.map(function(p, i) {
+        return '<div class="prod-item">' +
+          '<div class="prod-top">' +
+            '<h3>' + esc(p.name || '(namnlös)') + '</h3>' +
+            '<div class="order-btns">' +
+              '<button class="btn btn-sm btn-order" ' + (i === 0 ? 'disabled' : '') + ' data-move="' + p.id + '" data-dir="-1">&uarr;</button>' +
+              '<button class="btn btn-sm btn-order" ' + (i === projects.length - 1 ? 'disabled' : '') + ' data-move="' + p.id + '" data-dir="1">&darr;</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="prod-meta">' + (p.images || []).length + ' bilder — ' + (p.price ? p.price + ' kr' : 'Inget pris') + '</div>' +
+          '<div class="prod-actions">' +
+            '<button class="btn btn-primary btn-sm" data-edit="' + p.id + '">Redigera</button>' +
+            '<button class="btn btn-danger btn-sm" data-del="' + p.id + '">Ta bort</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      el.querySelectorAll('[data-edit]').forEach(function(b) {
+        b.addEventListener('click', function() { openEditor(b.dataset.edit); });
+      });
+      el.querySelectorAll('[data-del]').forEach(function(b) {
+        b.addEventListener('click', function() { delProject(b.dataset.del); });
+      });
+      el.querySelectorAll('[data-move]').forEach(function(b) {
+        b.addEventListener('click', function() { moveProject(b.dataset.move, parseInt(b.dataset.dir)); });
+      });
+    }
+
+    // --- Move ---
+    function moveProject(id, dir) {
+      var i = projects.findIndex(function(p) { return p.id === id; });
+      if (i < 0) return;
+      var j = i + dir;
+      if (j < 0 || j >= projects.length) return;
+      var tmp = projects[i]; projects[i] = projects[j]; projects[j] = tmp;
+      renderList();
+      saveProjects('Ändra ordning').then(function() {
+        status('Ordning sparad', 'ok');
+      }).catch(function(e) {
+        status('Fel: ' + e.message, 'err');
+      });
+    }
+
+    // --- Delete ---
+    function delProject(id) {
+      var p = projects.find(function(x) { return x.id === id; });
+      if (!p || !confirm('Ta bort "' + p.name + '"?')) return;
+      projects = projects.filter(function(x) { return x.id !== id; });
+      saveProjects('Ta bort: ' + p.name).then(function() {
+        status('"' + p.name + '" borttaget', 'ok');
+        renderList();
+      }).catch(function(e) {
+        status('Fel: ' + e.message, 'err');
+      });
+    }
+
+    // --- Editor ---
+    function openEditor(id) {
+      var p = id ? projects.find(function(x) { return x.id === id; }) : null;
+      editId = p ? p.id : null;
+      pendingImgs = [];
+
+      document.getElementById('list-view').classList.add('hidden');
+      document.getElementById('edit-view').classList.remove('hidden');
+      document.getElementById('edit-title').textContent = p ? 'Redigera produkt' : 'Ny produkt';
+      document.getElementById('ed-name').value = p ? p.name : '';
+      document.getElementById('ed-desc').value = p ? (p.description || '') : '';
+      document.getElementById('ed-price').value = p ? (p.price || '') : '';
+
+      renderExisting();
+      renderPending();
+    }
+
+    function closeEditor() {
+      document.getElementById('edit-view').classList.add('hidden');
+      document.getElementById('list-view').classList.remove('hidden');
+      editId = null;
+      pendingImgs = [];
+    }
+
+    function renderExisting() {
+      var el = document.getElementById('ed-thumbs');
+      var p = editId ? projects.find(function(x) { return x.id === editId; }) : null;
+      if (!p || !p.images || p.images.length === 0) { el.innerHTML = ''; return; }
+
+      el.innerHTML = p.images.map(function(src, i) {
+        return '<div class="thumb ' + (src === p.cover ? 'is-cover' : '') + '">' +
+          '<img src="' + esc(src) + '">' +
+          '<button class="remove" data-rm="' + i + '">&times;</button>' +
+          '<button class="cover-btn" data-cov="' + i + '">Omslag</button>' +
+        '</div>';
+      }).join('');
+
+      el.querySelectorAll('[data-rm]').forEach(function(b) {
+        b.addEventListener('click', function() {
+          var idx = parseInt(b.dataset.rm);
+          var removed = p.images.splice(idx, 1)[0];
+          if (p.cover === removed) p.cover = p.images[0] || '';
+          renderExisting();
+        });
+      });
+      el.querySelectorAll('[data-cov]').forEach(function(b) {
+        b.addEventListener('click', function() {
+          p.cover = p.images[parseInt(b.dataset.cov)];
+          renderExisting();
+        });
+      });
+    }
+
+    function renderPending() {
+      var el = document.getElementById('pending-thumbs');
+      el.innerHTML = pendingImgs.map(function(img, i) {
+        return '<div class="thumb">' +
+          '<img src="' + img.dataUrl + '">' +
+          '<button class="remove" data-pi="' + i + '">&times;</button>' +
+        '</div>';
+      }).join('');
+      el.querySelectorAll('[data-pi]').forEach(function(b) {
+        b.addEventListener('click', function() {
+          pendingImgs.splice(parseInt(b.dataset.pi), 1);
+          renderPending();
+        });
+      });
+    }
+
+    // --- Image upload ---
+    var uploadArea = document.getElementById('upload-area');
+    var fileInput = document.getElementById('file-input');
+
+    uploadArea.addEventListener('click', function() { fileInput.click(); });
+    uploadArea.addEventListener('dragover', function(e) { e.preventDefault(); });
+    uploadArea.addEventListener('drop', function(e) { e.preventDefault(); handleFiles(e.dataTransfer.files); });
+    fileInput.addEventListener('change', function() { handleFiles(fileInput.files); fileInput.value = ''; });
+
+    function handleFiles(files) {
+      Array.from(files).forEach(function(file) {
+        if (!file.type.startsWith('image/')) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+          var name = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+          var filename = Date.now() + '_' + name;
+          pendingImgs.push({ dataUrl: reader.result, base64: reader.result.split(',')[1], filename: filename });
+          renderPending();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // --- Save ---
+    document.getElementById('btn-save').addEventListener('click', function() {
+      var name = document.getElementById('ed-name').value.trim();
+      if (!name) { status('Namn krävs', 'err'); return; }
+      var desc = document.getElementById('ed-desc').value.trim();
+      var price = parseFloat(document.getElementById('ed-price').value) || 0;
+
+      status('Sparar...', 'info');
+
+      var paths = [];
+      var chain = Promise.resolve();
+
+      pendingImgs.forEach(function(img) {
+        chain = chain.then(function() {
+          status('Laddar upp bild...', 'info');
+          return uploadImage(img.filename, img.base64);
+        }).then(function() {
+          paths.push(IMG_DIR + img.filename);
+        });
+      });
+
+      chain.then(function() {
+        if (editId) {
+          var p = projects.find(function(x) { return x.id === editId; });
+          if (p) {
+            p.name = name;
+            p.description = desc;
+            p.price = price;
+            p.images = (p.images || []).concat(paths);
+            if (!p.cover && p.images.length > 0) p.cover = p.images[0];
+          }
+        } else {
+          projects.push({
+            id: 'proj-' + Date.now(),
+            name: name,
+            description: desc,
+            price: price,
+            images: paths,
+            cover: paths[0] || ''
+          });
+        }
+        return saveProjects('Uppdatera: ' + name);
+      }).then(function() {
+        status('Sparat!', 'ok');
+        pendingImgs = [];
+        return loadProjects();
+      }).then(function() {
+        renderList();
+        closeEditor();
+      }).catch(function(e) {
+        status('Fel vid sparning: ' + e.message, 'err');
+      });
+    });
+
+    document.getElementById('btn-new').addEventListener('click', function() { openEditor(null); });
+    document.getElementById('btn-cancel').addEventListener('click', closeEditor);
+
+  })();
+  </script>
 </body>
 </html>
