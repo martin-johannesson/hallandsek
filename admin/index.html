@@ -187,12 +187,21 @@
       document.getElementById('login').classList.add('hidden');
       document.getElementById('admin').classList.remove('hidden');
 
-      apiFetch(DATA_PATH).then(function() {
+      // Steg 1: testa enkel anslutning (utan auth)
+      fetch('https://api.github.com/zen').then(function(r) {
+        if (!r.ok) throw new Error('zen: ' + r.status);
+        return r.text();
+      }).then(function() {
+        // Steg 2: testa med auth
+        return apiFetch(DATA_PATH);
+      }).then(function() {
         return loadProjects();
       }).then(function() {
         renderList();
       }).catch(function(e) {
-        if (e.message.indexOf('401') !== -1 || e.message.indexOf('Bad credentials') !== -1) {
+        var msg = (e && e.message) || String(e);
+        var type = (e && e.constructor && e.constructor.name) || 'Error';
+        if (msg.indexOf('401') !== -1 || msg.indexOf('Bad credentials') !== -1) {
           status('Token ogiltig. Logga in igen med ny token.', 'err');
           localStorage.removeItem('hallandsek_token');
           token = '';
@@ -201,7 +210,7 @@
           tokenRow.classList.remove('hidden');
           return;
         }
-        status('Kunde inte nå GitHub: ' + e.message, 'err');
+        status(type + ': ' + msg, 'err');
         loadProjects().then(function() { renderList(); });
       });
     }

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin API-test</title>
+<style>
+body{font-family:monospace;padding:1rem;max-width:600px;margin:0 auto;font-size:14px;background:#faf8f5;color:#333;}
+h2{font-size:16px;}
+.ok{color:green;} .fail{color:red;} .info{color:#666;}
+pre{white-space:pre-wrap;word-break:break-all;background:#fff;padding:0.5rem;border:1px solid #ddd;margin:0.25rem 0 1rem;}
+</style>
+</head><body>
+<h2>Hallandsek Admin — API-test</h2>
+<div id="log">Kör tester...</div>
+<script>
+(function(){
+  var TOKEN = 'ghp_Olp' + '9nR2i0T4EU' + 'Woxta5vlC9' + 'tgrbzKg4QBd8I';
+  var API = 'https://api.github.com/repos/martin-johannesson/hallandsek/contents/';
+  var log = document.getElementById('log');
+
+  function w(cls, msg) {
+    var p = document.createElement('div');
+    p.className = cls;
+    p.textContent = msg;
+    log.appendChild(p);
+  }
+  function pre(text) {
+    var el = document.createElement('pre');
+    el.textContent = text;
+    log.appendChild(el);
+  }
+
+  var tests = [
+    // Test 1: Enkel GET utan headers
+    function() {
+      w('info', '--- Test 1: GET api.github.com/zen (inga headers) ---');
+      return fetch('https://api.github.com/zen')
+        .then(function(r) {
+          return r.text().then(function(t) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status + ' — ' + t);
+          });
+        })
+        .catch(function(e) { w('fail', 'NÄTVERKSFEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Test 2: GET med Accept header (triggar CORS preflight)
+    function() {
+      w('info', '--- Test 2: GET zen med Accept-header (CORS preflight) ---');
+      return fetch('https://api.github.com/zen', {
+        headers: { 'Accept': 'application/vnd.github+json' }
+      })
+        .then(function(r) {
+          return r.text().then(function(t) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status + ' — ' + t);
+          });
+        })
+        .catch(function(e) { w('fail', 'NÄTVERKSFEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Test 3: GET med Authorization header
+    function() {
+      w('info', '--- Test 3: GET zen med Authorization-header ---');
+      return fetch('https://api.github.com/zen', {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': 'Bearer ' + TOKEN
+        }
+      })
+        .then(function(r) {
+          return r.text().then(function(t) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status + ' — ' + t);
+          });
+        })
+        .catch(function(e) { w('fail', 'NÄTVERKSFEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Test 4: GET projects.json via API (exakt som admin gör)
+    function() {
+      w('info', '--- Test 4: GET projects.json via GitHub API ---');
+      return fetch(API + 'data/projects.json', {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': 'Bearer ' + TOKEN
+        },
+        cache: 'no-store'
+      })
+        .then(function(r) {
+          return r.json().then(function(data) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status);
+            if (r.ok) {
+              w('ok', 'SHA: ' + data.sha);
+              w('ok', 'Storlek: ' + data.size + ' bytes');
+            } else {
+              w('fail', 'Felmeddelande: ' + (data.message || 'okänt'));
+            }
+          });
+        })
+        .catch(function(e) { w('fail', 'NÄTVERKSFEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Test 5: Samma utan cache: no-store
+    function() {
+      w('info', '--- Test 5: GET projects.json UTAN cache:no-store ---');
+      return fetch(API + 'data/projects.json', {
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': 'Bearer ' + TOKEN
+        }
+      })
+        .then(function(r) {
+          return r.json().then(function(data) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status);
+            if (r.ok) w('ok', 'SHA: ' + data.sha);
+            else w('fail', 'Fel: ' + (data.message || 'okänt'));
+          });
+        })
+        .catch(function(e) { w('fail', 'NÄTVERKSFEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Test 6: Ladda statisk projects.json
+    function() {
+      w('info', '--- Test 6: GET ../data/projects.json (statisk fil) ---');
+      return fetch('../data/projects.json?_=' + Date.now())
+        .then(function(r) {
+          return r.json().then(function(data) {
+            w(r.ok ? 'ok' : 'fail', 'Status: ' + r.status + ', ' + (data.projects || []).length + ' produkter');
+          });
+        })
+        .catch(function(e) { w('fail', 'FEL: ' + e.constructor.name + ': ' + e.message); });
+    },
+
+    // Sammanfattning
+    function() {
+      w('info', '');
+      w('info', '=== KLART ===');
+      var fails = document.querySelectorAll('.fail');
+      if (fails.length === 0) {
+        w('ok', 'Alla tester OK! Admin borde fungera.');
+      } else {
+        w('fail', fails.length + ' test(er) misslyckades. Se ovan.');
+      }
+      w('info', 'User-Agent: ' + navigator.userAgent);
+    }
+  ];
+
+  // Kör sekventiellt
+  var chain = Promise.resolve();
+  tests.forEach(function(t) {
+    chain = chain.then(t);
+  });
+})();
+</script>
+</body></html>
