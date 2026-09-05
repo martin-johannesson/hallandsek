@@ -2,7 +2,7 @@
   "projects": [
     {
       "id": "proj-1771848361744",
-      "name": "Tavellist ek",
+      "name": "Tavellist ek m",
       "description": "",
       "date": "2026-02",
       "images": [
@@ -51,9 +51,19 @@
       "id": "proj-1771876055761",
       "name": "Sängbord ek",
       "description": "",
-      "price": 1495,
+      "price": 0,
       "images": [],
       "cover": ""
+    },
+    {
+      "id": "proj-1788631921489",
+      "name": "Skärbräda mango",
+      "description": "",
+      "price": 0,
+      "images": [
+        "images/1788631884030_68745724-52ad-499d-aa95-6448f3491764.jpg"
+      ],
+      "cover": "images/1788631884030_68745724-52ad-499d-aa95-6448f3491764.jpg"
     }
   ]
 }
