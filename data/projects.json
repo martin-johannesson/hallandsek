@@ -64,6 +64,16 @@
         "images/1788631884030_68745724-52ad-499d-aa95-6448f3491764.jpg"
       ],
       "cover": "images/1788631884030_68745724-52ad-499d-aa95-6448f3491764.jpg"
+    },
+    {
+      "id": "proj-1788635146543",
+      "name": "Bord ek 2.4m",
+      "description": "",
+      "price": 0,
+      "images": [
+        "images/1788635124107_img_4981.heic"
+      ],
+      "cover": "images/1788635124107_img_4981.heic"
     }
   ]
 }
