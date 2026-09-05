@@ -2,13 +2,13 @@
   "projects": [
     {
       "id": "proj-1771848361744",
-      "name": "Tavellist ek m",
+      "name": "Tavellist ek",
       "description": "",
       "date": "2026-02",
       "images": [
-        "images/1771848388286_img_2322.jpeg"
+        "images/1788636903257_img_4469.jpg"
       ],
-      "cover": "images/1771848388286_img_2322.jpeg",
+      "cover": "images/1788636903257_img_4469.jpg",
       "purchases": [
         {
           "date": "2026-02-23",
@@ -74,17 +74,6 @@
         "images/1788635124107_img_4981.heic"
       ],
       "cover": "images/1788635124107_img_4981.heic"
-    },
-    {
-      "id": "proj-1788636886727",
-      "name": "Hylla",
-      "description": "",
-      "price": 0,
-      "images": [
-        "images/1788636859932_img_3044.jpg",
-        "images/1788636859954_img_3042.jpg"
-      ],
-      "cover": "images/1788636859932_img_3044.jpg"
     }
   ]
 }
