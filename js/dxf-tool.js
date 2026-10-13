@@ -7,13 +7,15 @@
   var currentStep = 1;
   var srcImage = null;       // HTMLImageElement
   var grayData = null;       // Uint8Array (w * h)
+  var rgbaData = null;       // Uint8ClampedArray (w * h * 4)
   var imgW = 0, imgH = 0;
   var contours = [];         // [{points: [{x,y}], area: number, selected: boolean}]
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
+  var detectMode = 'object'; // 'object' or 'threshold'
 
-  // --- DOM refs (lazily resolved) ---
+  // --- DOM refs ---
   function $(id) { return document.getElementById(id); }
 
   // =====================
@@ -65,6 +67,7 @@
     $('btn-restart').addEventListener('click', function () {
       srcImage = null;
       grayData = null;
+      rgbaData = null;
       contours = [];
       calPoints = [];
       pixPerMm = 0;
@@ -115,7 +118,6 @@
   }
 
   function processImage() {
-    // Scale down to MAX_DIM
     var scale = 1;
     if (srcImage.width > MAX_DIM || srcImage.height > MAX_DIM) {
       scale = Math.min(MAX_DIM / srcImage.width, MAX_DIM / srcImage.height);
@@ -131,7 +133,10 @@
     var imageData = ctx.getImageData(0, 0, imgW, imgH);
     var d = imageData.data;
 
-    // Grayscale
+    // Store RGBA for flood fill
+    rgbaData = new Uint8ClampedArray(d);
+
+    // Grayscale for threshold mode
     grayData = new Uint8Array(imgW * imgH);
     for (var i = 0; i < grayData.length; i++) {
       var off = i * 4;
@@ -140,36 +145,77 @@
   }
 
   // =====================
-  // Step 2: Adjust contours
+  // Step 2: Detect contours
   // =====================
   function setupStep2() {
-    var sliders = ['threshold', 'blur', 'area', 'simplify'];
-    sliders.forEach(function (name) {
+    // Mode selector
+    var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
+    modeButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        modeButtons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        detectMode = btn.dataset.mode;
+        $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
+        $('threshold-controls').style.display = detectMode === 'threshold' ? '' : 'none';
+        $('mode-hint').textContent = detectMode === 'object'
+          ? 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.'
+          : 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).';
+        renderContourPreview();
+      });
+    });
+
+    // Object mode sliders
+    ['tolerance', 'grow'].forEach(function (name) {
       $('slider-' + name).addEventListener('input', function () {
         $('val-' + name).textContent = this.value;
         renderContourPreview();
       });
     });
+
+    // Threshold mode sliders
+    ['threshold', 'blur'].forEach(function (name) {
+      $('slider-' + name).addEventListener('input', function () {
+        $('val-' + name).textContent = this.value;
+        renderContourPreview();
+      });
+    });
+
+    // Shared sliders
+    ['area', 'simplify'].forEach(function (name) {
+      $('slider-' + name).addEventListener('input', function () {
+        $('val-' + name).textContent = this.value;
+        renderContourPreview();
+      });
+    });
+
     $('toggle-invert').addEventListener('change', function () { renderContourPreview(); });
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
   }
 
-  function getParams() {
-    return {
-      threshold: parseInt($('slider-threshold').value),
-      blur: parseInt($('slider-blur').value),
-      minArea: parseInt($('slider-area').value),
-      simplify: parseFloat($('slider-simplify').value),
-      invert: $('toggle-invert').checked,
-      smooth: $('toggle-smooth').checked
-    };
-  }
-
   function renderContourPreview() {
     if (!grayData) return;
-    var p = getParams();
-    var processed = applyBlur(grayData, imgW, imgH, p.blur);
-    var binary = threshold(processed, imgW, imgH, p.threshold, p.invert);
+    var minArea = parseInt($('slider-area').value);
+    var simplify = parseFloat($('slider-simplify').value);
+    var smooth = $('toggle-smooth').checked;
+    var binary;
+
+    if (detectMode === 'object') {
+      var tolerance = parseInt($('slider-tolerance').value);
+      var grow = parseInt($('slider-grow').value);
+      binary = floodFillFromBorders(rgbaData, imgW, imgH, tolerance);
+      // Morphological close (dilate then erode) to fill small gaps
+      if (grow > 0) {
+        binary = dilate(binary, imgW, imgH, grow);
+        binary = erode(binary, imgW, imgH, grow);
+      }
+    } else {
+      var thresh = parseInt($('slider-threshold').value);
+      var blur = parseInt($('slider-blur').value);
+      var invert = $('toggle-invert').checked;
+      var processed = applyBlur(grayData, imgW, imgH, blur);
+      binary = thresholdBinary(processed, imgW, imgH, thresh, invert);
+    }
+
     var rawContours = marchingSquares(binary, imgW, imgH);
     var stitched = stitchSegments(rawContours);
 
@@ -177,18 +223,15 @@
     for (var i = 0; i < stitched.length; i++) {
       var pts = stitched[i];
       var area = contourArea(pts);
-      if (Math.abs(area) < p.minArea) continue;
-      // Ensure consistent winding (CCW)
+      if (Math.abs(area) < minArea) continue;
       if (area < 0) pts.reverse();
-      var simplified = douglasPeucker(pts, p.simplify);
+      var simplified = douglasPeucker(pts, simplify);
       if (simplified.length < 3) continue;
-      if (p.smooth) simplified = chaikinSmooth(simplified, 2);
+      if (smooth) simplified = chaikinSmooth(simplified, 2);
       contours.push({ points: simplified, area: Math.abs(contourArea(simplified)), selected: false });
     }
 
-    // Sort by area descending
     contours.sort(function (a, b) { return b.area - a.area; });
-    // Select largest by default
     if (contours.length > 0) contours[0].selected = true;
 
     drawContourOverlay('canvas-contour', contours, null);
@@ -200,14 +243,10 @@
     canvas.height = imgH;
     var ctx = canvas.getContext('2d');
 
-    // Draw original image
     ctx.drawImage(srcImage, 0, 0, imgW, imgH);
-
-    // Dim slightly
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.fillRect(0, 0, imgW, imgH);
 
-    // Draw contours
     for (var i = 0; i < cList.length; i++) {
       var c = cList[i];
       ctx.beginPath();
@@ -235,6 +274,117 @@
   }
 
   // =====================
+  // Flood fill from borders (object detection)
+  // =====================
+  function floodFillFromBorders(rgba, w, h, tolerance) {
+    // Result: 1 = foreground (object), 0 = background
+    var fg = new Uint8Array(w * h);
+    for (var i = 0; i < fg.length; i++) fg[i] = 1;
+
+    var visited = new Uint8Array(w * h);
+    var queue = new Int32Array(w * h); // pre-allocated BFS queue
+    var qHead = 0, qTail = 0;
+
+    // Seed all border pixels
+    for (var x = 0; x < w; x++) {
+      seedPixel(x, 0);
+      seedPixel(x, h - 1);
+    }
+    for (var y = 1; y < h - 1; y++) {
+      seedPixel(0, y);
+      seedPixel(w - 1, y);
+    }
+
+    function seedPixel(sx, sy) {
+      var idx = sy * w + sx;
+      if (visited[idx]) return;
+      visited[idx] = 1;
+      fg[idx] = 0;
+      queue[qTail++] = idx;
+    }
+
+    // BFS: expand background from borders
+    var tolSq = tolerance * tolerance;
+    while (qHead < qTail) {
+      var ci = queue[qHead++];
+      var cx = ci % w;
+      var cy = (ci - cx) / w;
+      var co = ci * 4;
+      var cr = rgba[co], cg = rgba[co + 1], cb = rgba[co + 2];
+
+      // 4-connected neighbors
+      if (cx > 0)     checkNeighbor(ci - 1, cr, cg, cb);
+      if (cx < w - 1) checkNeighbor(ci + 1, cr, cg, cb);
+      if (cy > 0)     checkNeighbor(ci - w, cr, cg, cb);
+      if (cy < h - 1) checkNeighbor(ci + w, cr, cg, cb);
+    }
+
+    function checkNeighbor(ni, cr, cg, cb) {
+      if (visited[ni]) return;
+      var no = ni * 4;
+      var dr = cr - rgba[no];
+      var dg = cg - rgba[no + 1];
+      var db = cb - rgba[no + 2];
+      if (dr * dr + dg * dg + db * db <= tolSq) {
+        visited[ni] = 1;
+        fg[ni] = 0;
+        queue[qTail++] = ni;
+      }
+    }
+
+    return fg;
+  }
+
+  // =====================
+  // Morphological operations
+  // =====================
+  function dilate(binary, w, h, radius) {
+    var out = new Uint8Array(w * h);
+    var r2 = radius * radius;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (binary[y * w + x] === 1) {
+          // Expand this pixel
+          var y0 = Math.max(0, y - radius), y1 = Math.min(h - 1, y + radius);
+          var x0 = Math.max(0, x - radius), x1 = Math.min(w - 1, x + radius);
+          for (var ny = y0; ny <= y1; ny++) {
+            for (var nx = x0; nx <= x1; nx++) {
+              var dx = nx - x, dy = ny - y;
+              if (dx * dx + dy * dy <= r2) out[ny * w + nx] = 1;
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  function erode(binary, w, h, radius) {
+    var out = new Uint8Array(w * h);
+    var r2 = radius * radius;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (binary[y * w + x] === 0) continue;
+        var allSet = true;
+        var y0 = Math.max(0, y - radius), y1 = Math.min(h - 1, y + radius);
+        var x0 = Math.max(0, x - radius), x1 = Math.min(w - 1, x + radius);
+        outer:
+        for (var ny = y0; ny <= y1; ny++) {
+          for (var nx = x0; nx <= x1; nx++) {
+            var dx = nx - x, dy = ny - y;
+            if (dx * dx + dy * dy <= r2 && binary[ny * w + nx] === 0) {
+              allSet = false;
+              break outer;
+            }
+          }
+        }
+        if (allSet) out[y * w + x] = 1;
+      }
+    }
+    return out;
+  }
+
+  // =====================
   // Step 3: Select contours
   // =====================
   function setupStep3() {
@@ -254,11 +404,9 @@
       var mx = (e.clientX - rect.left) * scaleX;
       var my = (e.clientY - rect.top) * scaleY;
 
-      // Find closest contour
       var bestDist = Infinity, bestIdx = -1;
       for (var i = 0; i < contours.length; i++) {
         if (pointInPolygon(mx, my, contours[i].points)) {
-          // Pick smallest containing polygon
           if (contours[i].area < bestDist) {
             bestDist = contours[i].area;
             bestIdx = i;
@@ -347,9 +495,7 @@
     });
   }
 
-  function renderCalStep() {
-    drawCalOverlay();
-  }
+  function renderCalStep() { drawCalOverlay(); }
 
   function drawCalOverlay() {
     var canvas = $('canvas-cal');
@@ -361,7 +507,6 @@
     ctx.fillStyle = 'rgba(0,0,0,0.15)';
     ctx.fillRect(0, 0, imgW, imgH);
 
-    // Draw selected contours
     var selected = contours.filter(function (c) { return c.selected; });
     for (var i = 0; i < selected.length; i++) {
       var pts = selected[i].points;
@@ -374,7 +519,6 @@
       ctx.stroke();
     }
 
-    // Draw cal points and line
     for (var k = 0; k < calPoints.length; k++) {
       ctx.beginPath();
       ctx.arc(calPoints[k].x, calPoints[k].y, 6, 0, Math.PI * 2);
@@ -407,7 +551,6 @@
     var selected = contours.filter(function (c) { return c.selected; });
     var totalPts = selected.reduce(function (s, c) { return s + c.points.length; }, 0);
 
-    // Draw preview
     var canvas = $('canvas-export');
     canvas.width = imgW;
     canvas.height = imgH;
@@ -426,7 +569,6 @@
       ctx.stroke();
     }
 
-    // Info
     var scaleStr = pixPerMm > 0
       ? pixPerMm.toFixed(2) + ' px/mm'
       : 'Ej kalibrerad (1 px = 1 enhet)';
@@ -483,7 +625,7 @@
     return src;
   }
 
-  function threshold(data, w, h, thresh, invert) {
+  function thresholdBinary(data, w, h, thresh, invert) {
     var out = new Uint8Array(w * h);
     for (var i = 0; i < out.length; i++) {
       var val = data[i] >= thresh ? 1 : 0;
@@ -497,7 +639,6 @@
   // =====================
   function marchingSquares(binary, w, h) {
     var segments = [];
-    // Iterate over cells (each cell is 2x2 pixels)
     for (var y = 0; y < h - 1; y++) {
       for (var x = 0; x < w - 1; x++) {
         var tl = binary[y * w + x];
@@ -508,7 +649,6 @@
 
         if (cell === 0 || cell === 15) continue;
 
-        // Midpoints with linear interpolation
         var top = { x: x + 0.5, y: y };
         var right = { x: x + 1, y: y + 0.5 };
         var bottom = { x: x + 0.5, y: y + 1 };
@@ -519,7 +659,7 @@
           case 2:  segments.push([bottom, right]); break;
           case 3:  segments.push([left, right]); break;
           case 4:  segments.push([right, top]); break;
-          case 5:  // Saddle: use center average
+          case 5:
             var center = (tl + tr + br + bl) / 4;
             if (center >= 0.5) {
               segments.push([left, top]);
@@ -533,7 +673,7 @@
           case 7:  segments.push([left, top]); break;
           case 8:  segments.push([top, left]); break;
           case 9:  segments.push([top, bottom]); break;
-          case 10: // Saddle
+          case 10:
             var center2 = (tl + tr + br + bl) / 4;
             if (center2 >= 0.5) {
               segments.push([top, right]);
@@ -559,11 +699,10 @@
   function stitchSegments(segments) {
     if (segments.length === 0) return [];
 
-    // Build adjacency via hash map
-    var PREC = 10; // 1 decimal for hash
+    var PREC = 10;
     function key(p) { return Math.round(p.x * PREC) + ',' + Math.round(p.y * PREC); }
 
-    var map = {}; // key -> [segIndex, ...]
+    var map = {};
     for (var i = 0; i < segments.length; i++) {
       var s = segments[i];
       var k0 = key(s[0]), k1 = key(s[1]);
@@ -581,7 +720,6 @@
       used[si] = 1;
       var chain = [segments[si][0], segments[si][1]];
 
-      // Extend forward
       var extended = true;
       while (extended) {
         extended = false;
@@ -593,21 +731,11 @@
           if (used[idx]) continue;
           var seg = segments[idx];
           var sk0 = key(seg[0]), sk1 = key(seg[1]);
-          if (sk0 === endKey) {
-            chain.push(seg[1]);
-            used[idx] = 1;
-            extended = true;
-            break;
-          } else if (sk1 === endKey) {
-            chain.push(seg[0]);
-            used[idx] = 1;
-            extended = true;
-            break;
-          }
+          if (sk0 === endKey) { chain.push(seg[1]); used[idx] = 1; extended = true; break; }
+          else if (sk1 === endKey) { chain.push(seg[0]); used[idx] = 1; extended = true; break; }
         }
       }
 
-      // Extend backward
       extended = true;
       while (extended) {
         extended = false;
@@ -619,17 +747,8 @@
           if (used[idx2]) continue;
           var seg2 = segments[idx2];
           var sk0b = key(seg2[0]), sk1b = key(seg2[1]);
-          if (sk0b === startKey) {
-            chain.unshift(seg2[1]);
-            used[idx2] = 1;
-            extended = true;
-            break;
-          } else if (sk1b === startKey) {
-            chain.unshift(seg2[0]);
-            used[idx2] = 1;
-            extended = true;
-            break;
-          }
+          if (sk0b === startKey) { chain.unshift(seg2[1]); used[idx2] = 1; extended = true; break; }
+          else if (sk1b === startKey) { chain.unshift(seg2[0]); used[idx2] = 1; extended = true; break; }
         }
       }
 
@@ -658,30 +777,25 @@
   // =====================
   function douglasPeucker(pts, epsilon) {
     if (pts.length <= 2) return pts;
-
     var maxDist = 0, maxIdx = 0;
     var first = pts[0], last = pts[pts.length - 1];
-
     for (var i = 1; i < pts.length - 1; i++) {
       var d = perpDist(pts[i], first, last);
       if (d > maxDist) { maxDist = d; maxIdx = i; }
     }
-
     if (maxDist > epsilon) {
       var left = douglasPeucker(pts.slice(0, maxIdx + 1), epsilon);
       var right = douglasPeucker(pts.slice(maxIdx), epsilon);
       return left.slice(0, -1).concat(right);
-    } else {
-      return [first, last];
     }
+    return [first, last];
   }
 
   function perpDist(p, a, b) {
     var dx = b.x - a.x, dy = b.y - a.y;
     var lenSq = dx * dx + dy * dy;
     if (lenSq === 0) return Math.sqrt((p.x - a.x) * (p.x - a.x) + (p.y - a.y) * (p.y - a.y));
-    var num = Math.abs(dy * p.x - dx * p.y + b.x * a.y - b.y * a.x);
-    return num / Math.sqrt(lenSq);
+    return Math.abs(dy * p.x - dx * p.y + b.x * a.y - b.y * a.x) / Math.sqrt(lenSq);
   }
 
   // =====================
@@ -726,55 +840,24 @@
     var scale = ppm > 0 ? (1 / ppm) : 1;
     var lines = [];
 
-    lines.push('0');
-    lines.push('SECTION');
-    lines.push('2');
-    lines.push('HEADER');
-    lines.push('9');
-    lines.push('$INSUNITS');
-    lines.push('70');
-    lines.push(ppm > 0 ? '4' : '0'); // 4 = mm, 0 = unspecified
-    lines.push('0');
-    lines.push('ENDSEC');
-
-    lines.push('0');
-    lines.push('SECTION');
-    lines.push('2');
-    lines.push('ENTITIES');
+    lines.push('0', 'SECTION', '2', 'HEADER');
+    lines.push('9', '$INSUNITS', '70', ppm > 0 ? '4' : '0');
+    lines.push('0', 'ENDSEC');
+    lines.push('0', 'SECTION', '2', 'ENTITIES');
 
     for (var i = 0; i < selected.length; i++) {
       var pts = selected[i].points;
-      lines.push('0');
-      lines.push('POLYLINE');
-      lines.push('8');
-      lines.push('0');
-      lines.push('66');
-      lines.push('1');
-      lines.push('70');
-      lines.push('1'); // closed polyline
-
+      lines.push('0', 'POLYLINE', '8', '0', '66', '1', '70', '1');
       for (var j = 0; j < pts.length; j++) {
-        lines.push('0');
-        lines.push('VERTEX');
-        lines.push('8');
-        lines.push('0');
-        lines.push('10');
-        lines.push((pts[j].x * scale).toFixed(4));
-        lines.push('20');
-        lines.push((-pts[j].y * scale).toFixed(4)); // Flip Y
-        lines.push('30');
-        lines.push('0.0000');
+        lines.push('0', 'VERTEX', '8', '0');
+        lines.push('10', (pts[j].x * scale).toFixed(4));
+        lines.push('20', (-pts[j].y * scale).toFixed(4));
+        lines.push('30', '0.0000');
       }
-
-      lines.push('0');
-      lines.push('SEQEND');
+      lines.push('0', 'SEQEND');
     }
 
-    lines.push('0');
-    lines.push('ENDSEC');
-    lines.push('0');
-    lines.push('EOF');
-
+    lines.push('0', 'ENDSEC', '0', 'EOF');
     return lines.join('\n');
   }
 
