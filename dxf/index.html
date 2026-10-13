@@ -109,9 +109,6 @@
       height: auto;
     }
 
-    /* Mask canvas cursor */
-    .canvas-wrap canvas.painting { cursor: crosshair; }
-
     /* Controls */
     .controls-grid {
       display: grid;
@@ -283,54 +280,6 @@
       gap: 0.5rem;
       margin-bottom: 1rem;
     }
-
-    /* Mode selector */
-    .mode-selector {
-      display: flex;
-      gap: 0;
-      margin-bottom: 1.25rem;
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-    }
-    .mode-btn {
-      flex: 1;
-      padding: 0.6rem 1rem;
-      border: none;
-      background: var(--bg);
-      color: var(--text-light);
-      font-size: 0.85rem;
-      font-family: inherit;
-      cursor: pointer;
-      transition: all 0.2s;
-      text-align: center;
-    }
-    .mode-btn:not(:last-child) { border-right: 1px solid var(--border); }
-    .mode-btn.active {
-      background: var(--accent);
-      color: #fff;
-    }
-    .mode-btn:hover:not(.active) { background: var(--bg-warm); }
-    .threshold-controls.hidden { display: none; }
-
-    /* Mask tool buttons */
-    .mask-tools {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-      margin-bottom: 1rem;
-    }
-    .mask-tools .btn.active {
-      background: var(--accent);
-      color: #fff;
-    }
-    .mask-hint {
-      font-size: 0.85rem;
-      color: var(--text-light);
-      margin-bottom: 1rem;
-      line-height: 1.6;
-    }
   </style>
 </head>
 <body>
@@ -358,8 +307,6 @@
       <div class="step-dot" data-step="4">4</div>
       <div class="step-connector"></div>
       <div class="step-dot" data-step="5">5</div>
-      <div class="step-connector"></div>
-      <div class="step-dot" data-step="6">6</div>
     </div>
 
     <!-- Step 1: Upload -->
@@ -376,64 +323,31 @@
       </div>
     </div>
 
-    <!-- Step 2: Mask object -->
+    <!-- Step 2: Adjust -->
     <div class="step-panel hidden" id="step-2">
-      <h3>2. Markera objekt</h3>
-      <p class="mask-hint">
-        Måla över objektet du vill fånga konturen av. Områden utanför markeringen ignoreras
-        (skuggor, bakgrund m.m. filtreras bort).
-      </p>
-      <div class="mask-tools">
-        <button class="btn btn-sm active" id="btn-mask-brush">Pensel</button>
-        <button class="btn btn-sm" id="btn-mask-eraser">Suddgummi</button>
-        <div class="control-group" style="flex:1;min-width:150px;margin:0">
-          <label>Penselstorlek <span id="val-brush-size">40</span> px</label>
-          <input type="range" id="slider-brush-size" min="5" max="150" value="40">
-        </div>
-        <button class="btn btn-sm" id="btn-mask-clear">Rensa</button>
-        <button class="btn btn-sm" id="btn-mask-fill">Markera allt</button>
-      </div>
-      <div class="canvas-wrap">
-        <canvas id="canvas-mask" class="painting"></canvas>
-      </div>
-      <div class="step-nav">
-        <button class="btn" id="btn-back-1">&larr; Tillbaka</button>
-        <button class="btn btn-sm" id="btn-skip-mask">Hoppa över (hela bilden)</button>
-        <button class="btn btn-primary" id="btn-next-2">Justera konturer &rarr;</button>
-      </div>
-    </div>
-
-    <!-- Step 3: Adjust contours -->
-    <div class="step-panel hidden" id="step-3">
-      <h3>3. Justera kontur</h3>
-      <div class="mode-selector" id="mode-selector">
-        <button class="mode-btn active" data-mode="mask">Maskkontur</button>
-        <button class="mode-btn" data-mode="threshold">Bildanalys</button>
-      </div>
+      <h3>2. Justera konturdetektering</h3>
       <div class="canvas-wrap">
         <canvas id="canvas-contour"></canvas>
       </div>
-      <div class="controls-grid threshold-controls hidden" id="threshold-controls">
+      <div class="controls-grid">
         <div class="control-group">
           <label>Tröskel <span id="val-threshold">128</span></label>
           <input type="range" id="slider-threshold" min="0" max="255" value="128">
         </div>
         <div class="control-group">
+          <label>Oskärpa <span id="val-blur">1</span></label>
+          <input type="range" id="slider-blur" min="0" max="5" value="1">
+        </div>
+        <div class="control-group">
           <label>Min area <span id="val-area">500</span> px&sup2;</label>
           <input type="range" id="slider-area" min="100" max="5000" value="500" step="100">
-        </div>
-      </div>
-      <div class="controls-grid">
-        <div class="control-group">
-          <label>Oskärpa <span id="val-blur">2</span></label>
-          <input type="range" id="slider-blur" min="0" max="10" value="2">
         </div>
         <div class="control-group">
           <label>Förenkling <span id="val-simplify">2.0</span> px</label>
           <input type="range" id="slider-simplify" min="0.5" max="10" value="2" step="0.5">
         </div>
       </div>
-      <div class="toggle-row threshold-controls hidden">
+      <div class="toggle-row">
         <div class="toggle-switch">
           <input type="checkbox" id="toggle-invert">
           <span class="toggle-slider"></span>
@@ -442,20 +356,20 @@
       </div>
       <div class="toggle-row">
         <div class="toggle-switch">
-          <input type="checkbox" id="toggle-smooth" checked>
+          <input type="checkbox" id="toggle-smooth">
           <span class="toggle-slider"></span>
         </div>
-        <label for="toggle-smooth">Utjämning (mjukare kurvor)</label>
+        <label for="toggle-smooth">Chaikin-utjämning</label>
       </div>
       <div class="step-nav">
-        <button class="btn" id="btn-back-2">&larr; Tillbaka</button>
-        <button class="btn btn-primary" id="btn-next-3">Välj konturer &rarr;</button>
+        <button class="btn" id="btn-back-1">&larr; Tillbaka</button>
+        <button class="btn btn-primary" id="btn-next-2">Välj konturer &rarr;</button>
       </div>
     </div>
 
-    <!-- Step 4: Select contours -->
-    <div class="step-panel hidden" id="step-4">
-      <h3>4. Välj konturer</h3>
+    <!-- Step 3: Select contours -->
+    <div class="step-panel hidden" id="step-3">
+      <h3>3. Välj konturer</h3>
       <div class="canvas-wrap">
         <canvas id="canvas-select"></canvas>
       </div>
@@ -465,14 +379,14 @@
       </div>
       <div class="contour-list" id="contour-list"></div>
       <div class="step-nav">
-        <button class="btn" id="btn-back-3">&larr; Tillbaka</button>
-        <button class="btn btn-primary" id="btn-next-4">Kalibrering &rarr;</button>
+        <button class="btn" id="btn-back-2">&larr; Tillbaka</button>
+        <button class="btn btn-primary" id="btn-next-3">Kalibrering &rarr;</button>
       </div>
     </div>
 
-    <!-- Step 5: Calibrate -->
-    <div class="step-panel hidden" id="step-5">
-      <h3>5. Skalakalibrering</h3>
+    <!-- Step 4: Calibrate -->
+    <div class="step-panel hidden" id="step-4">
+      <h3>4. Skalakalibrering</h3>
       <p class="cal-instruction">
         Klicka två punkter på bilden för att rita en referenslinje med känt mått.
         Ange sedan det verkliga måttet i millimeter.
@@ -488,21 +402,21 @@
       </div>
       <div class="cal-status" id="cal-status"></div>
       <div class="step-nav">
-        <button class="btn" id="btn-back-4">&larr; Tillbaka</button>
+        <button class="btn" id="btn-back-3">&larr; Tillbaka</button>
         <button class="btn btn-sm" id="btn-skip-cal">Hoppa över (pixlar)</button>
-        <button class="btn btn-primary" id="btn-next-5">Exportera &rarr;</button>
+        <button class="btn btn-primary" id="btn-next-4">Exportera &rarr;</button>
       </div>
     </div>
 
-    <!-- Step 6: Export -->
-    <div class="step-panel hidden" id="step-6">
-      <h3>6. Exportera DXF</h3>
+    <!-- Step 5: Export -->
+    <div class="step-panel hidden" id="step-5">
+      <h3>5. Exportera DXF</h3>
       <div class="canvas-wrap">
         <canvas id="canvas-export"></canvas>
       </div>
       <div class="export-info" id="export-info"></div>
       <div class="step-nav">
-        <button class="btn" id="btn-back-5">&larr; Tillbaka</button>
+        <button class="btn" id="btn-back-4">&larr; Tillbaka</button>
         <button class="btn btn-primary" id="btn-download">Ladda ner DXF</button>
         <button class="btn" id="btn-restart">Börja om</button>
       </div>

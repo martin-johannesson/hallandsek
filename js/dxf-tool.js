@@ -4,21 +4,14 @@
   'use strict';
 
   // --- State ---
-  var TOTAL_STEPS = 6;
   var currentStep = 1;
   var srcImage = null;       // HTMLImageElement
   var grayData = null;       // Uint8Array (w * h)
-  var maskData = null;       // Uint8Array (w * h), 1 = included, 0 = excluded
-  var maskActive = false;    // true if user painted anything (otherwise skip mask)
   var imgW = 0, imgH = 0;
   var contours = [];         // [{points: [{x,y}], area: number, selected: boolean}]
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
-
-  // Mask painting state
-  var painting = false;
-  var maskMode = 'brush';    // 'brush' or 'eraser'
 
   // --- DOM refs (lazily resolved) ---
   function $(id) { return document.getElementById(id); }
@@ -28,11 +21,10 @@
   // =====================
   document.addEventListener('DOMContentLoaded', function () {
     setupUpload();
-    setupMaskStep();
-    setupContourStep();
-    setupSelectStep();
-    setupCalStep();
-    setupExportStep();
+    setupStep2();
+    setupStep3();
+    setupStep4();
+    setupStep5();
     setupNav();
   });
 
@@ -40,30 +32,16 @@
   // Step navigation
   // =====================
   function goToStep(n) {
-    for (var i = 1; i <= TOTAL_STEPS; i++) {
+    for (var i = 1; i <= 5; i++) {
       var panel = $('step-' + i);
       if (panel) panel.classList.toggle('hidden', i !== n);
     }
     currentStep = n;
     updateStepDots();
-    if (n === 2) renderMaskStep();
-    if (n === 3) {
-      // Auto-select mode based on whether mask was painted
-      var preferredMode = maskActive ? 'mask' : 'threshold';
-      contourMode = preferredMode;
-      var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
-      modeButtons.forEach(function (b) {
-        b.classList.toggle('active', b.dataset.mode === preferredMode);
-      });
-      var threshCtrls = document.querySelectorAll('.threshold-controls');
-      threshCtrls.forEach(function (el) {
-        el.classList.toggle('hidden', preferredMode === 'mask');
-      });
-      renderContourPreview();
-    }
-    if (n === 4) renderSelectStep();
-    if (n === 5) renderCalStep();
-    if (n === 6) renderExportStep();
+    if (n === 2) renderContourPreview();
+    if (n === 3) renderSelectStep();
+    if (n === 4) renderCalStep();
+    if (n === 5) renderExportStep();
   }
 
   function updateStepDots() {
@@ -84,21 +62,9 @@
     $('btn-back-3').addEventListener('click', function () { goToStep(3); });
     $('btn-next-4').addEventListener('click', function () { goToStep(5); });
     $('btn-back-4').addEventListener('click', function () { goToStep(4); });
-    $('btn-next-5').addEventListener('click', function () { goToStep(6); });
-    $('btn-back-5').addEventListener('click', function () { goToStep(5); });
-    $('btn-skip-mask').addEventListener('click', function () {
-      maskActive = false;
-      goToStep(3);
-    });
-    $('btn-skip-cal').addEventListener('click', function () {
-      pixPerMm = 0;
-      goToStep(6);
-    });
     $('btn-restart').addEventListener('click', function () {
       srcImage = null;
       grayData = null;
-      maskData = null;
-      maskActive = false;
       contours = [];
       calPoints = [];
       pixPerMm = 0;
@@ -171,139 +137,12 @@
       var off = i * 4;
       grayData[i] = Math.round(0.299 * d[off] + 0.587 * d[off + 1] + 0.114 * d[off + 2]);
     }
-
-    // Reset mask
-    maskData = new Uint8Array(imgW * imgH);
-    maskActive = false;
   }
 
   // =====================
-  // Step 2: Mask object
+  // Step 2: Adjust contours
   // =====================
-  function setupMaskStep() {
-    var canvas = $('canvas-mask');
-
-    // Brush/eraser toggle
-    $('btn-mask-brush').addEventListener('click', function () {
-      maskMode = 'brush';
-      $('btn-mask-brush').classList.add('active');
-      $('btn-mask-eraser').classList.remove('active');
-    });
-    $('btn-mask-eraser').addEventListener('click', function () {
-      maskMode = 'eraser';
-      $('btn-mask-eraser').classList.add('active');
-      $('btn-mask-brush').classList.remove('active');
-    });
-
-    // Brush size
-    $('slider-brush-size').addEventListener('input', function () {
-      $('val-brush-size').textContent = this.value;
-    });
-
-    // Clear / fill
-    $('btn-mask-clear').addEventListener('click', function () {
-      maskData = new Uint8Array(imgW * imgH);
-      maskActive = false;
-      renderMaskCanvas();
-    });
-    $('btn-mask-fill').addEventListener('click', function () {
-      maskData = new Uint8Array(imgW * imgH);
-      for (var i = 0; i < maskData.length; i++) maskData[i] = 1;
-      maskActive = true;
-      renderMaskCanvas();
-    });
-
-    // Painting events
-    canvas.addEventListener('mousedown', function (e) {
-      painting = true;
-      maskActive = true;
-      paintMask(e);
-    });
-    canvas.addEventListener('mousemove', function (e) {
-      if (painting) paintMask(e);
-    });
-    canvas.addEventListener('mouseup', function () { painting = false; });
-    canvas.addEventListener('mouseleave', function () { painting = false; });
-
-    // Touch support
-    canvas.addEventListener('touchstart', function (e) {
-      e.preventDefault();
-      painting = true;
-      maskActive = true;
-      paintMask(e.touches[0]);
-    }, { passive: false });
-    canvas.addEventListener('touchmove', function (e) {
-      e.preventDefault();
-      if (painting) paintMask(e.touches[0]);
-    }, { passive: false });
-    canvas.addEventListener('touchend', function () { painting = false; });
-  }
-
-  function paintMask(e) {
-    var canvas = $('canvas-mask');
-    var rect = canvas.getBoundingClientRect();
-    var scaleX = imgW / rect.width;
-    var scaleY = imgH / rect.height;
-    var cx = (e.clientX - rect.left) * scaleX;
-    var cy = (e.clientY - rect.top) * scaleY;
-    var radius = parseInt($('slider-brush-size').value);
-    var val = maskMode === 'brush' ? 1 : 0;
-
-    // Paint circle into mask
-    var r2 = radius * radius;
-    var x0 = Math.max(0, Math.floor(cx - radius));
-    var y0 = Math.max(0, Math.floor(cy - radius));
-    var x1 = Math.min(imgW - 1, Math.ceil(cx + radius));
-    var y1 = Math.min(imgH - 1, Math.ceil(cy + radius));
-    for (var y = y0; y <= y1; y++) {
-      for (var x = x0; x <= x1; x++) {
-        var dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy <= r2) {
-          maskData[y * imgW + x] = val;
-        }
-      }
-    }
-    renderMaskCanvas();
-  }
-
-  function renderMaskStep() {
-    renderMaskCanvas();
-  }
-
-  function renderMaskCanvas() {
-    var canvas = $('canvas-mask');
-    canvas.width = imgW;
-    canvas.height = imgH;
-    var ctx = canvas.getContext('2d');
-
-    // Draw original image
-    ctx.drawImage(srcImage, 0, 0, imgW, imgH);
-
-    // Only dim/tint once user has started painting
-    if (!maskActive) return;
-
-    // Dim unmasked areas, tint masked areas
-    var overlay = ctx.getImageData(0, 0, imgW, imgH);
-    var d = overlay.data;
-    for (var i = 0; i < maskData.length; i++) {
-      var off = i * 4;
-      if (maskData[i] === 0) {
-        d[off] = Math.round(d[off] * 0.35);
-        d[off + 1] = Math.round(d[off + 1] * 0.35);
-        d[off + 2] = Math.round(d[off + 2] * 0.35);
-      } else {
-        d[off + 1] = Math.min(255, d[off + 1] + 40);
-      }
-    }
-    ctx.putImageData(overlay, 0, 0);
-  }
-
-  // =====================
-  // Step 3: Adjust contours
-  // =====================
-  var contourMode = 'mask'; // 'mask' or 'threshold'
-
-  function setupContourStep() {
+  function setupStep2() {
     var sliders = ['threshold', 'blur', 'area', 'simplify'];
     sliders.forEach(function (name) {
       $('slider-' + name).addEventListener('input', function () {
@@ -313,22 +152,6 @@
     });
     $('toggle-invert').addEventListener('change', function () { renderContourPreview(); });
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
-
-    // Mode selector
-    var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
-    modeButtons.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        modeButtons.forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        contourMode = btn.dataset.mode;
-        // Show/hide threshold-specific controls
-        var threshCtrls = document.querySelectorAll('.threshold-controls');
-        threshCtrls.forEach(function (el) {
-          el.classList.toggle('hidden', contourMode === 'mask');
-        });
-        renderContourPreview();
-      });
-    });
   }
 
   function getParams() {
@@ -345,34 +168,17 @@
   function renderContourPreview() {
     if (!grayData) return;
     var p = getParams();
-    var binary;
-
-    if (contourMode === 'mask' && maskActive && maskData) {
-      // Mask contour mode: use mask itself as binary, blur to smooth edges
-      var maskFloat = new Uint8Array(imgW * imgH);
-      for (var i = 0; i < maskData.length; i++) maskFloat[i] = maskData[i] * 255;
-      var blurred = applyBlur(maskFloat, imgW, imgH, p.blur);
-      binary = threshold(blurred, imgW, imgH, 128, false);
-    } else {
-      // Threshold mode: analyze image brightness
-      var processed = applyBlur(grayData, imgW, imgH, p.blur);
-      binary = threshold(processed, imgW, imgH, p.threshold, p.invert);
-      // Apply mask filter if active
-      if (maskActive && maskData) {
-        for (var k = 0; k < binary.length; k++) {
-          if (maskData[k] === 0) binary[k] = 0;
-        }
-      }
-    }
-
+    var processed = applyBlur(grayData, imgW, imgH, p.blur);
+    var binary = threshold(processed, imgW, imgH, p.threshold, p.invert);
     var rawContours = marchingSquares(binary, imgW, imgH);
     var stitched = stitchSegments(rawContours);
 
     contours = [];
-    for (var j = 0; j < stitched.length; j++) {
-      var pts = stitched[j];
+    for (var i = 0; i < stitched.length; i++) {
+      var pts = stitched[i];
       var area = contourArea(pts);
       if (Math.abs(area) < p.minArea) continue;
+      // Ensure consistent winding (CCW)
       if (area < 0) pts.reverse();
       var simplified = douglasPeucker(pts, p.simplify);
       if (simplified.length < 3) continue;
@@ -380,7 +186,9 @@
       contours.push({ points: simplified, area: Math.abs(contourArea(simplified)), selected: false });
     }
 
+    // Sort by area descending
     contours.sort(function (a, b) { return b.area - a.area; });
+    // Select largest by default
     if (contours.length > 0) contours[0].selected = true;
 
     drawContourOverlay('canvas-contour', contours, null);
@@ -427,9 +235,9 @@
   }
 
   // =====================
-  // Step 4: Select contours
+  // Step 3: Select contours
   // =====================
-  function setupSelectStep() {
+  function setupStep3() {
     $('btn-select-all').addEventListener('click', function () {
       contours.forEach(function (c) { c.selected = true; });
       renderSelectStep();
@@ -492,9 +300,9 @@
   }
 
   // =====================
-  // Step 5: Calibration
+  // Step 4: Calibration
   // =====================
-  function setupCalStep() {
+  function setupStep4() {
     var canvas = $('canvas-cal');
     canvas.addEventListener('click', function (e) {
       if (calPoints.length >= 2) return;
@@ -531,6 +339,11 @@
       $('cal-status').textContent = '';
       $('cal-mm').value = '';
       drawCalOverlay();
+    });
+
+    $('btn-skip-cal').addEventListener('click', function () {
+      pixPerMm = 0;
+      goToStep(5);
     });
   }
 
@@ -584,9 +397,9 @@
   }
 
   // =====================
-  // Step 6: Export
+  // Step 5: Export
   // =====================
-  function setupExportStep() {
+  function setupStep5() {
     $('btn-download').addEventListener('click', downloadDXF);
   }
 
@@ -684,6 +497,7 @@
   // =====================
   function marchingSquares(binary, w, h) {
     var segments = [];
+    // Iterate over cells (each cell is 2x2 pixels)
     for (var y = 0; y < h - 1; y++) {
       for (var x = 0; x < w - 1; x++) {
         var tl = binary[y * w + x];
@@ -694,6 +508,7 @@
 
         if (cell === 0 || cell === 15) continue;
 
+        // Midpoints with linear interpolation
         var top = { x: x + 0.5, y: y };
         var right = { x: x + 1, y: y + 0.5 };
         var bottom = { x: x + 0.5, y: y + 1 };
@@ -704,7 +519,7 @@
           case 2:  segments.push([bottom, right]); break;
           case 3:  segments.push([left, right]); break;
           case 4:  segments.push([right, top]); break;
-          case 5:
+          case 5:  // Saddle: use center average
             var center = (tl + tr + br + bl) / 4;
             if (center >= 0.5) {
               segments.push([left, top]);
@@ -718,7 +533,7 @@
           case 7:  segments.push([left, top]); break;
           case 8:  segments.push([top, left]); break;
           case 9:  segments.push([top, bottom]); break;
-          case 10:
+          case 10: // Saddle
             var center2 = (tl + tr + br + bl) / 4;
             if (center2 >= 0.5) {
               segments.push([top, right]);
@@ -744,10 +559,11 @@
   function stitchSegments(segments) {
     if (segments.length === 0) return [];
 
-    var PREC = 10;
+    // Build adjacency via hash map
+    var PREC = 10; // 1 decimal for hash
     function key(p) { return Math.round(p.x * PREC) + ',' + Math.round(p.y * PREC); }
 
-    var map = {};
+    var map = {}; // key -> [segIndex, ...]
     for (var i = 0; i < segments.length; i++) {
       var s = segments[i];
       var k0 = key(s[0]), k1 = key(s[1]);
@@ -765,6 +581,7 @@
       used[si] = 1;
       var chain = [segments[si][0], segments[si][1]];
 
+      // Extend forward
       var extended = true;
       while (extended) {
         extended = false;
@@ -790,6 +607,7 @@
         }
       }
 
+      // Extend backward
       extended = true;
       while (extended) {
         extended = false;
@@ -915,7 +733,7 @@
     lines.push('9');
     lines.push('$INSUNITS');
     lines.push('70');
-    lines.push(ppm > 0 ? '4' : '0');
+    lines.push(ppm > 0 ? '4' : '0'); // 4 = mm, 0 = unspecified
     lines.push('0');
     lines.push('ENDSEC');
 
@@ -933,7 +751,7 @@
       lines.push('66');
       lines.push('1');
       lines.push('70');
-      lines.push('1');
+      lines.push('1'); // closed polyline
 
       for (var j = 0; j < pts.length; j++) {
         lines.push('0');
@@ -943,7 +761,7 @@
         lines.push('10');
         lines.push((pts[j].x * scale).toFixed(4));
         lines.push('20');
-        lines.push((-pts[j].y * scale).toFixed(4));
+        lines.push((-pts[j].y * scale).toFixed(4)); // Flip Y
         lines.push('30');
         lines.push('0.0000');
       }
