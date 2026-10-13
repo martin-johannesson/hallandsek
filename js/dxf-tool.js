@@ -47,7 +47,20 @@
     currentStep = n;
     updateStepDots();
     if (n === 2) renderMaskStep();
-    if (n === 3) renderContourPreview();
+    if (n === 3) {
+      // Auto-select mode based on whether mask was painted
+      var preferredMode = maskActive ? 'mask' : 'threshold';
+      contourMode = preferredMode;
+      var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
+      modeButtons.forEach(function (b) {
+        b.classList.toggle('active', b.dataset.mode === preferredMode);
+      });
+      var threshCtrls = document.querySelectorAll('.threshold-controls');
+      threshCtrls.forEach(function (el) {
+        el.classList.toggle('hidden', preferredMode === 'mask');
+      });
+      renderContourPreview();
+    }
     if (n === 4) renderSelectStep();
     if (n === 5) renderCalStep();
     if (n === 6) renderExportStep();
@@ -288,6 +301,8 @@
   // =====================
   // Step 3: Adjust contours
   // =====================
+  var contourMode = 'mask'; // 'mask' or 'threshold'
+
   function setupContourStep() {
     var sliders = ['threshold', 'blur', 'area', 'simplify'];
     sliders.forEach(function (name) {
@@ -298,6 +313,22 @@
     });
     $('toggle-invert').addEventListener('change', function () { renderContourPreview(); });
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
+
+    // Mode selector
+    var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
+    modeButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        modeButtons.forEach(function (b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        contourMode = btn.dataset.mode;
+        // Show/hide threshold-specific controls
+        var threshCtrls = document.querySelectorAll('.threshold-controls');
+        threshCtrls.forEach(function (el) {
+          el.classList.toggle('hidden', contourMode === 'mask');
+        });
+        renderContourPreview();
+      });
+    });
   }
 
   function getParams() {
@@ -314,13 +345,23 @@
   function renderContourPreview() {
     if (!grayData) return;
     var p = getParams();
-    var processed = applyBlur(grayData, imgW, imgH, p.blur);
-    var binary = threshold(processed, imgW, imgH, p.threshold, p.invert);
+    var binary;
 
-    // Apply mask: zero out everything outside mask
-    if (maskActive && maskData) {
-      for (var i = 0; i < binary.length; i++) {
-        if (maskData[i] === 0) binary[i] = 0;
+    if (contourMode === 'mask' && maskActive && maskData) {
+      // Mask contour mode: use mask itself as binary, blur to smooth edges
+      var maskFloat = new Uint8Array(imgW * imgH);
+      for (var i = 0; i < maskData.length; i++) maskFloat[i] = maskData[i] * 255;
+      var blurred = applyBlur(maskFloat, imgW, imgH, p.blur);
+      binary = threshold(blurred, imgW, imgH, 128, false);
+    } else {
+      // Threshold mode: analyze image brightness
+      var processed = applyBlur(grayData, imgW, imgH, p.blur);
+      binary = threshold(processed, imgW, imgH, p.threshold, p.invert);
+      // Apply mask filter if active
+      if (maskActive && maskData) {
+        for (var k = 0; k < binary.length; k++) {
+          if (maskData[k] === 0) binary[k] = 0;
+        }
       }
     }
 
@@ -332,7 +373,6 @@
       var pts = stitched[j];
       var area = contourArea(pts);
       if (Math.abs(area) < p.minArea) continue;
-      // Ensure consistent winding (CCW)
       if (area < 0) pts.reverse();
       var simplified = douglasPeucker(pts, p.simplify);
       if (simplified.length < 3) continue;
@@ -340,9 +380,7 @@
       contours.push({ points: simplified, area: Math.abs(contourArea(simplified)), selected: false });
     }
 
-    // Sort by area descending
     contours.sort(function (a, b) { return b.area - a.area; });
-    // Select largest by default
     if (contours.length > 0) contours[0].selected = true;
 
     drawContourOverlay('canvas-contour', contours, null);
