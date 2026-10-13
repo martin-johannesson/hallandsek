@@ -266,43 +266,23 @@
     // Draw original image
     ctx.drawImage(srcImage, 0, 0, imgW, imgH);
 
-    // Dim unmasked areas
+    // Only dim/tint once user has started painting
+    if (!maskActive) return;
+
+    // Dim unmasked areas, tint masked areas
     var overlay = ctx.getImageData(0, 0, imgW, imgH);
     var d = overlay.data;
     for (var i = 0; i < maskData.length; i++) {
+      var off = i * 4;
       if (maskData[i] === 0) {
-        // Darken unmasked pixels
-        var off = i * 4;
         d[off] = Math.round(d[off] * 0.35);
         d[off + 1] = Math.round(d[off + 1] * 0.35);
         d[off + 2] = Math.round(d[off + 2] * 0.35);
       } else {
-        // Tint masked pixels green
-        var off2 = i * 4;
-        d[off2 + 1] = Math.min(255, d[off2 + 1] + 40);
-        d[off2 + 3] = 255;
+        d[off + 1] = Math.min(255, d[off + 1] + 40);
       }
     }
     ctx.putImageData(overlay, 0, 0);
-
-    // Draw mask edge outline
-    ctx.strokeStyle = 'rgba(212,114,42,0.6)';
-    ctx.lineWidth = 1;
-    for (var y = 0; y < imgH; y++) {
-      for (var x = 0; x < imgW; x++) {
-        if (maskData[y * imgW + x] === 1) {
-          // Check if edge pixel (any neighbor is 0 or border)
-          var isEdge = false;
-          if (x === 0 || x === imgW - 1 || y === 0 || y === imgH - 1) isEdge = true;
-          else if (maskData[y * imgW + x - 1] === 0 || maskData[y * imgW + x + 1] === 0 ||
-                   maskData[(y - 1) * imgW + x] === 0 || maskData[(y + 1) * imgW + x] === 0) isEdge = true;
-          if (isEdge) {
-            ctx.fillStyle = 'rgba(212,114,42,0.7)';
-            ctx.fillRect(x, y, 1, 1);
-          }
-        }
-      }
-    }
   }
 
   // =====================
