@@ -281,52 +281,55 @@
     var fg = new Uint8Array(w * h);
     for (var i = 0; i < fg.length; i++) fg[i] = 1;
 
+    // Compute average color of border pixels as background reference
+    var sumR = 0, sumG = 0, sumB = 0, borderCount = 0;
+    function addBorderPixel(bx, by) {
+      var bo = (by * w + bx) * 4;
+      sumR += rgba[bo]; sumG += rgba[bo + 1]; sumB += rgba[bo + 2];
+      borderCount++;
+    }
+    for (var bx = 0; bx < w; bx++) { addBorderPixel(bx, 0); addBorderPixel(bx, h - 1); }
+    for (var by = 1; by < h - 1; by++) { addBorderPixel(0, by); addBorderPixel(w - 1, by); }
+    var bgR = sumR / borderCount, bgG = sumG / borderCount, bgB = sumB / borderCount;
+
     var visited = new Uint8Array(w * h);
-    var queue = new Int32Array(w * h); // pre-allocated BFS queue
+    var queue = new Int32Array(w * h);
     var qHead = 0, qTail = 0;
 
-    // Seed all border pixels
-    for (var x = 0; x < w; x++) {
-      seedPixel(x, 0);
-      seedPixel(x, h - 1);
-    }
-    for (var y = 1; y < h - 1; y++) {
-      seedPixel(0, y);
-      seedPixel(w - 1, y);
-    }
+    // Seed border pixels that match the average background color
+    var tolSq = tolerance * tolerance;
+    for (var sx = 0; sx < w; sx++) { seedPixel(sx, 0); seedPixel(sx, h - 1); }
+    for (var sy = 1; sy < h - 1; sy++) { seedPixel(0, sy); seedPixel(w - 1, sy); }
 
-    function seedPixel(sx, sy) {
-      var idx = sy * w + sx;
+    function seedPixel(px, py) {
+      var idx = py * w + px;
       if (visited[idx]) return;
+      var po = idx * 4;
+      var dr = bgR - rgba[po], dg = bgG - rgba[po + 1], db = bgB - rgba[po + 2];
+      if (dr * dr + dg * dg + db * db > tolSq) return; // border pixel too different from avg
       visited[idx] = 1;
       fg[idx] = 0;
       queue[qTail++] = idx;
     }
 
-    // BFS: expand background from borders
-    var tolSq = tolerance * tolerance;
+    // BFS: expand background — each pixel compared to background average
     while (qHead < qTail) {
       var ci = queue[qHead++];
       var cx = ci % w;
       var cy = (ci - cx) / w;
-      var co = ci * 4;
-      var cr = rgba[co], cg = rgba[co + 1], cb = rgba[co + 2];
 
-      // 4-connected neighbors
-      if (cx > 0)     checkNeighbor(ci - 1, cr, cg, cb);
-      if (cx < w - 1) checkNeighbor(ci + 1, cr, cg, cb);
-      if (cy > 0)     checkNeighbor(ci - w, cr, cg, cb);
-      if (cy < h - 1) checkNeighbor(ci + w, cr, cg, cb);
+      if (cx > 0)     checkNeighbor(ci - 1);
+      if (cx < w - 1) checkNeighbor(ci + 1);
+      if (cy > 0)     checkNeighbor(ci - w);
+      if (cy < h - 1) checkNeighbor(ci + w);
     }
 
-    function checkNeighbor(ni, cr, cg, cb) {
+    function checkNeighbor(ni) {
       if (visited[ni]) return;
+      visited[ni] = 1;
       var no = ni * 4;
-      var dr = cr - rgba[no];
-      var dg = cg - rgba[no + 1];
-      var db = cb - rgba[no + 2];
+      var dr = bgR - rgba[no], dg = bgG - rgba[no + 1], db = bgB - rgba[no + 2];
       if (dr * dr + dg * dg + db * db <= tolSq) {
-        visited[ni] = 1;
         fg[ni] = 0;
         queue[qTail++] = ni;
       }
