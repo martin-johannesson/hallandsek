@@ -202,7 +202,7 @@
     if (detectMode === 'object') {
       var tolerance = parseInt($('slider-tolerance').value);
       var grow = parseInt($('slider-grow').value);
-      binary = floodFillFromBorders(rgbaData, imgW, imgH, tolerance);
+      binary = detectForeground(rgbaData, imgW, imgH, tolerance);
       // Morphological close (dilate then erode) to fill small gaps
       if (grow > 0) {
         binary = dilate(binary, imgW, imgH, grow);
@@ -276,63 +276,43 @@
   // =====================
   // Flood fill from borders (object detection)
   // =====================
-  function floodFillFromBorders(rgba, w, h, tolerance) {
-    // Result: 1 = foreground (object), 0 = background
+  function detectForeground(rgba, w, h, tolerance) {
+    // Classify pixels: 1 = foreground (object), 0 = background
+    // Uses median color of border pixels as background reference
+    // Each pixel classified independently — no connectivity required
+
+    // Collect border pixel colors
+    var borderN = 2 * w + 2 * (h - 2);
+    var rArr = new Uint8Array(borderN);
+    var gArr = new Uint8Array(borderN);
+    var bArr = new Uint8Array(borderN);
+    var bi = 0;
+
+    for (var x = 0; x < w; x++) {
+      var o1 = x * 4;
+      rArr[bi] = rgba[o1]; gArr[bi] = rgba[o1 + 1]; bArr[bi] = rgba[o1 + 2]; bi++;
+      var o2 = ((h - 1) * w + x) * 4;
+      rArr[bi] = rgba[o2]; gArr[bi] = rgba[o2 + 1]; bArr[bi] = rgba[o2 + 2]; bi++;
+    }
+    for (var y = 1; y < h - 1; y++) {
+      var o3 = (y * w) * 4;
+      rArr[bi] = rgba[o3]; gArr[bi] = rgba[o3 + 1]; bArr[bi] = rgba[o3 + 2]; bi++;
+      var o4 = (y * w + w - 1) * 4;
+      rArr[bi] = rgba[o4]; gArr[bi] = rgba[o4 + 1]; bArr[bi] = rgba[o4 + 2]; bi++;
+    }
+
+    // Median per channel (robust to outliers if object touches edge)
+    rArr.sort(); gArr.sort(); bArr.sort();
+    var mid = borderN >> 1;
+    var bgR = rArr[mid], bgG = gArr[mid], bgB = bArr[mid];
+
+    // Classify every pixel: color distance to median background > tolerance → foreground
     var fg = new Uint8Array(w * h);
-    for (var i = 0; i < fg.length; i++) fg[i] = 1;
-
-    // Compute average color of border pixels as background reference
-    var sumR = 0, sumG = 0, sumB = 0, borderCount = 0;
-    function addBorderPixel(bx, by) {
-      var bo = (by * w + bx) * 4;
-      sumR += rgba[bo]; sumG += rgba[bo + 1]; sumB += rgba[bo + 2];
-      borderCount++;
-    }
-    for (var bx = 0; bx < w; bx++) { addBorderPixel(bx, 0); addBorderPixel(bx, h - 1); }
-    for (var by = 1; by < h - 1; by++) { addBorderPixel(0, by); addBorderPixel(w - 1, by); }
-    var bgR = sumR / borderCount, bgG = sumG / borderCount, bgB = sumB / borderCount;
-
-    var visited = new Uint8Array(w * h);
-    var queue = new Int32Array(w * h);
-    var qHead = 0, qTail = 0;
-
-    // Seed border pixels that match the average background color
     var tolSq = tolerance * tolerance;
-    for (var sx = 0; sx < w; sx++) { seedPixel(sx, 0); seedPixel(sx, h - 1); }
-    for (var sy = 1; sy < h - 1; sy++) { seedPixel(0, sy); seedPixel(w - 1, sy); }
-
-    function seedPixel(px, py) {
-      var idx = py * w + px;
-      if (visited[idx]) return;
-      var po = idx * 4;
-      var dr = bgR - rgba[po], dg = bgG - rgba[po + 1], db = bgB - rgba[po + 2];
-      if (dr * dr + dg * dg + db * db > tolSq) return; // border pixel too different from avg
-      visited[idx] = 1;
-      fg[idx] = 0;
-      queue[qTail++] = idx;
-    }
-
-    // BFS: expand background — each pixel compared to background average
-    while (qHead < qTail) {
-      var ci = queue[qHead++];
-      var cx = ci % w;
-      var cy = (ci - cx) / w;
-
-      if (cx > 0)     checkNeighbor(ci - 1);
-      if (cx < w - 1) checkNeighbor(ci + 1);
-      if (cy > 0)     checkNeighbor(ci - w);
-      if (cy < h - 1) checkNeighbor(ci + w);
-    }
-
-    function checkNeighbor(ni) {
-      if (visited[ni]) return;
-      visited[ni] = 1;
-      var no = ni * 4;
-      var dr = bgR - rgba[no], dg = bgG - rgba[no + 1], db = bgB - rgba[no + 2];
-      if (dr * dr + dg * dg + db * db <= tolSq) {
-        fg[ni] = 0;
-        queue[qTail++] = ni;
-      }
+    for (var i = 0; i < fg.length; i++) {
+      var off = i * 4;
+      var dr = bgR - rgba[off], dg = bgG - rgba[off + 1], db = bgB - rgba[off + 2];
+      if (dr * dr + dg * dg + db * db > tolSq) fg[i] = 1;
     }
 
     return fg;
