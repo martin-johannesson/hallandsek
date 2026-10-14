@@ -13,7 +13,10 @@
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
-  var detectMode = 'object'; // 'object' or 'threshold'
+  var detectMode = 'advanced'; // 'advanced', 'object' or 'threshold'
+  var gradientMap = null;       // Float32Array (w * h), cached Sobel gradient
+  var cachedCenters = null;     // k-means centroids array
+  var cachedBorderPercent = 0;  // last border % for cache invalidation
 
   // --- DOM refs ---
   function $(id) { return document.getElementById(id); }
@@ -71,6 +74,9 @@
       contours = [];
       calPoints = [];
       pixPerMm = 0;
+      gradientMap = null;
+      cachedCenters = null;
+      cachedBorderPercent = 0;
       $('cal-status').textContent = '';
       $('cal-mm').value = '';
       goToStep(1);
@@ -142,12 +148,23 @@
       var off = i * 4;
       grayData[i] = Math.round(0.299 * d[off] + 0.587 * d[off + 1] + 0.114 * d[off + 2]);
     }
+
+    // Precompute Sobel gradient (cached, reused on slider changes)
+    gradientMap = computeGradient(grayData, imgW, imgH);
+    cachedCenters = null;
+    cachedBorderPercent = 0;
   }
 
   // =====================
   // Step 2: Detect contours
   // =====================
   function setupStep2() {
+    var modeHints = {
+      advanced: 'Multi-kluster bakgrundsmodell med kantdetektering. Hanterar mönstrad duk, träbord och skuggor.',
+      object: 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.',
+      threshold: 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).'
+    };
+
     // Mode selector
     var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
     modeButtons.forEach(function (btn) {
@@ -155,13 +172,25 @@
         modeButtons.forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
         detectMode = btn.dataset.mode;
+        $('advanced-controls').style.display = detectMode === 'advanced' ? '' : 'none';
         $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
         $('threshold-controls').style.display = detectMode === 'threshold' ? '' : 'none';
-        $('mode-hint').textContent = detectMode === 'object'
-          ? 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.'
-          : 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).';
+        $('mode-hint').textContent = modeHints[detectMode] || '';
         renderContourPreview();
       });
+    });
+
+    // Advanced mode sliders
+    ['adv-tolerance', 'adv-edge', 'adv-grow'].forEach(function (name) {
+      $('slider-' + name).addEventListener('input', function () {
+        $('val-' + name).textContent = this.value;
+        renderContourPreview();
+      });
+    });
+    $('slider-adv-border').addEventListener('input', function () {
+      $('val-adv-border').textContent = this.value;
+      cachedCenters = null; // invalidate k-means cache
+      renderContourPreview();
     });
 
     // Object mode sliders
@@ -199,7 +228,25 @@
     var smooth = $('toggle-smooth').checked;
     var binary;
 
-    if (detectMode === 'object') {
+    if (detectMode === 'advanced') {
+      var advTol = parseInt($('slider-adv-tolerance').value);
+      var advEdge = parseInt($('slider-adv-edge').value);
+      var advGrow = parseInt($('slider-adv-grow').value);
+      var advBorder = parseInt($('slider-adv-border').value);
+
+      // Recompute k-means only if border % changed
+      if (!cachedCenters || cachedBorderPercent !== advBorder) {
+        var samples = sampleBorderPixels(rgbaData, imgW, imgH, advBorder);
+        cachedCenters = kMeansClusters(samples, 4, 10);
+        cachedBorderPercent = advBorder;
+      }
+
+      binary = detectForegroundAdvanced(rgbaData, imgW, imgH, advTol, cachedCenters);
+      if (advGrow > 0) {
+        binary = edgeAwareDilate(binary, imgW, imgH, advGrow, gradientMap, advEdge);
+        binary = edgeAwareErode(binary, imgW, imgH, advGrow, gradientMap, advEdge);
+      }
+    } else if (detectMode === 'object') {
       var tolerance = parseInt($('slider-tolerance').value);
       var grow = parseInt($('slider-grow').value);
       binary = detectForeground(rgbaData, imgW, imgH, tolerance);
@@ -316,6 +363,214 @@
     }
 
     return fg;
+  }
+
+  // =====================
+  // Sobel gradient (cached at image load)
+  // =====================
+  function computeGradient(gray, w, h) {
+    var grad = new Float32Array(w * h);
+    for (var y = 1; y < h - 1; y++) {
+      for (var x = 1; x < w - 1; x++) {
+        var tl = gray[(y - 1) * w + x - 1], tc = gray[(y - 1) * w + x], tr = gray[(y - 1) * w + x + 1];
+        var ml = gray[y * w + x - 1],                                     mr = gray[y * w + x + 1];
+        var bl = gray[(y + 1) * w + x - 1], bc = gray[(y + 1) * w + x], br = gray[(y + 1) * w + x + 1];
+        var gx = -tl + tr - 2 * ml + 2 * mr - bl + br;
+        var gy = -tl - 2 * tc - tr + bl + 2 * bc + br;
+        grad[y * w + x] = Math.sqrt(gx * gx + gy * gy);
+      }
+    }
+    // Normalize to 0-255
+    var maxVal = 0;
+    for (var i = 0; i < grad.length; i++) {
+      if (grad[i] > maxVal) maxVal = grad[i];
+    }
+    if (maxVal > 0) {
+      var scale = 255 / maxVal;
+      for (var j = 0; j < grad.length; j++) grad[j] *= scale;
+    }
+    return grad;
+  }
+
+  // =====================
+  // K-means clustering (k-means++ init)
+  // =====================
+  function kMeansClusters(samples, k, maxIter) {
+    var n = samples.length;
+    if (n === 0) return [[128, 128, 128]];
+
+    // k-means++ initialization
+    var centers = [];
+    var idx = Math.floor(Math.random() * n);
+    centers.push([samples[idx][0], samples[idx][1], samples[idx][2]]);
+
+    for (var c = 1; c < k; c++) {
+      var dists = new Float32Array(n);
+      var totalDist = 0;
+      for (var i = 0; i < n; i++) {
+        var minD = Infinity;
+        for (var j = 0; j < centers.length; j++) {
+          var dr = samples[i][0] - centers[j][0];
+          var dg = samples[i][1] - centers[j][1];
+          var db = samples[i][2] - centers[j][2];
+          var d = dr * dr + dg * dg + db * db;
+          if (d < minD) minD = d;
+        }
+        dists[i] = minD;
+        totalDist += minD;
+      }
+      // Weighted random selection
+      var threshold = Math.random() * totalDist;
+      var cumulative = 0;
+      var chosen = 0;
+      for (var i2 = 0; i2 < n; i2++) {
+        cumulative += dists[i2];
+        if (cumulative >= threshold) { chosen = i2; break; }
+      }
+      centers.push([samples[chosen][0], samples[chosen][1], samples[chosen][2]]);
+    }
+
+    // Lloyd's iterations
+    var assignments = new Int32Array(n);
+    for (var iter = 0; iter < maxIter; iter++) {
+      // Assign each sample to nearest center
+      var changed = false;
+      for (var i3 = 0; i3 < n; i3++) {
+        var bestDist = Infinity, bestC = 0;
+        for (var ci = 0; ci < centers.length; ci++) {
+          var dr2 = samples[i3][0] - centers[ci][0];
+          var dg2 = samples[i3][1] - centers[ci][1];
+          var db2 = samples[i3][2] - centers[ci][2];
+          var dist = dr2 * dr2 + dg2 * dg2 + db2 * db2;
+          if (dist < bestDist) { bestDist = dist; bestC = ci; }
+        }
+        if (assignments[i3] !== bestC) { assignments[i3] = bestC; changed = true; }
+      }
+      if (!changed) break;
+
+      // Recompute centers
+      var sums = [];
+      var counts = new Int32Array(k);
+      for (var ci2 = 0; ci2 < k; ci2++) sums.push([0, 0, 0]);
+      for (var i4 = 0; i4 < n; i4++) {
+        var a = assignments[i4];
+        sums[a][0] += samples[i4][0];
+        sums[a][1] += samples[i4][1];
+        sums[a][2] += samples[i4][2];
+        counts[a]++;
+      }
+      for (var ci3 = 0; ci3 < k; ci3++) {
+        if (counts[ci3] > 0) {
+          centers[ci3] = [sums[ci3][0] / counts[ci3], sums[ci3][1] / counts[ci3], sums[ci3][2] / counts[ci3]];
+        }
+      }
+    }
+    return centers;
+  }
+
+  // =====================
+  // Sample border pixels for k-means
+  // =====================
+  function sampleBorderPixels(rgba, w, h, borderPercent) {
+    var bx = Math.max(1, Math.round(w * borderPercent / 100));
+    var by = Math.max(1, Math.round(h * borderPercent / 100));
+    var samples = [];
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (x < bx || x >= w - bx || y < by || y >= h - by) {
+          var off = (y * w + x) * 4;
+          samples.push([rgba[off], rgba[off + 1], rgba[off + 2]]);
+        }
+      }
+    }
+    // Subsample if too many (cap at 5000 for speed)
+    if (samples.length > 5000) {
+      var step = Math.floor(samples.length / 5000);
+      var sub = [];
+      for (var i = 0; i < samples.length; i += step) sub.push(samples[i]);
+      return sub;
+    }
+    return samples;
+  }
+
+  // =====================
+  // Advanced foreground detection (multi-cluster)
+  // =====================
+  function detectForegroundAdvanced(rgba, w, h, tolerance, centers) {
+    var fg = new Uint8Array(w * h);
+    var tolSq = tolerance * tolerance;
+    for (var i = 0; i < fg.length; i++) {
+      var off = i * 4;
+      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
+      // Distance to nearest cluster center
+      var minDist = Infinity;
+      for (var c = 0; c < centers.length; c++) {
+        var dr = r - centers[c][0], dg = g - centers[c][1], db = b - centers[c][2];
+        var d = dr * dr + dg * dg + db * db;
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > tolSq) fg[i] = 1;
+    }
+    return fg;
+  }
+
+  // =====================
+  // Edge-aware morphological operations
+  // =====================
+  function edgeAwareDilate(binary, w, h, radius, gradMap, edgeThreshold) {
+    var out = new Uint8Array(w * h);
+    var r2 = radius * radius;
+    var edgeActive = edgeThreshold > 0 && gradMap;
+    // Map slider 0-100 to gradient threshold (higher slider = stronger edge stopping)
+    var gradThresh = edgeThreshold * 2.55;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (binary[y * w + x] === 1) {
+          var y0 = Math.max(0, y - radius), y1 = Math.min(h - 1, y + radius);
+          var x0 = Math.max(0, x - radius), x1 = Math.min(w - 1, x + radius);
+          for (var ny = y0; ny <= y1; ny++) {
+            for (var nx = x0; nx <= x1; nx++) {
+              var dx = nx - x, dy = ny - y;
+              if (dx * dx + dy * dy <= r2) {
+                var ti = ny * w + nx;
+                if (edgeActive && gradMap[ti] > gradThresh) continue;
+                out[ti] = 1;
+              }
+            }
+          }
+        }
+      }
+    }
+    return out;
+  }
+
+  function edgeAwareErode(binary, w, h, radius, gradMap, edgeThreshold) {
+    var out = new Uint8Array(w * h);
+    var r2 = radius * radius;
+    var edgeActive = edgeThreshold > 0 && gradMap;
+    var gradThresh = edgeThreshold * 2.55;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (binary[y * w + x] === 0) continue;
+        var allSet = true;
+        var y0 = Math.max(0, y - radius), y1 = Math.min(h - 1, y + radius);
+        var x0 = Math.max(0, x - radius), x1 = Math.min(w - 1, x + radius);
+        outer:
+        for (var ny = y0; ny <= y1; ny++) {
+          for (var nx = x0; nx <= x1; nx++) {
+            var dx = nx - x, dy = ny - y;
+            if (dx * dx + dy * dy <= r2) {
+              var ti = ny * w + nx;
+              // Skip neighbors beyond strong edges
+              if (edgeActive && gradMap[ti] > gradThresh) continue;
+              if (binary[ti] === 0) { allSet = false; break outer; }
+            }
+          }
+        }
+        if (allSet) out[y * w + x] = 1;
+      }
+    }
+    return out;
   }
 
   // =====================
