@@ -392,6 +392,10 @@
       binary = dilate(binary, imgW, imgH, 2);
       binary = erode(binary, imgW, imgH, 3);
       binary = dilate(binary, imgW, imgH, 1);
+    } else {
+      // Fallback: treat as object mode
+      var tolerance = parseInt($('slider-tolerance').value);
+      binary = detectForeground(rgbaData, imgW, imgH, tolerance);
     }
 
     var rawContours = marchingSquares(binary, imgW, imgH);
