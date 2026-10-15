@@ -274,6 +274,14 @@
     });
 
     // Brush canvas drawing
+    // brushScale: convert screen px to image px
+    function brushImgRadius() {
+      var canvas = $('canvas-contour');
+      var r = canvas.getBoundingClientRect();
+      var sx = imgW / r.width;
+      var screenPx = parseInt($('slider-brush-width').value);
+      return Math.max(1, screenPx * sx / 2);
+    }
     var brushCanvas = $('canvas-contour');
     brushCanvas.addEventListener('mousedown', function (e) {
       if (detectMode !== 'brush') return;
@@ -283,13 +291,13 @@
       var sx = imgW / r.width, sy = imgH / r.height;
       var x = (e.clientX - r.left) * sx;
       var y = (e.clientY - r.top) * sy;
-      brushStrokes.push([{ x: x, y: y }]);
+      var imgR = brushImgRadius();
+      brushStrokes.push([{ x: x, y: y, r: imgR }]);
       if (!brushMask) brushMask = new Uint8Array(imgW * imgH);
-      var bw = parseInt($('slider-brush-width').value);
-      brushCircle(brushMask, imgW, imgH, x, y, bw / 2);
+      brushCircle(brushMask, imgW, imgH, x, y, imgR);
       var bctx = this.getContext('2d');
       bctx.beginPath();
-      bctx.arc(x, y, bw / 2, 0, Math.PI * 2);
+      bctx.arc(x, y, imgR, 0, Math.PI * 2);
       bctx.fillStyle = 'rgba(50,205,50,0.4)';
       bctx.fill();
     });
@@ -303,14 +311,14 @@
       var stroke = brushStrokes[brushStrokes.length - 1];
       var prev = stroke[stroke.length - 1];
       stroke.push({ x: x, y: y });
-      var bw = parseInt($('slider-brush-width').value);
-      brushLine(brushMask, imgW, imgH, prev.x, prev.y, x, y, bw / 2);
+      var imgR = stroke[0].r;
+      brushLine(brushMask, imgW, imgH, prev.x, prev.y, x, y, imgR);
       var bctx = this.getContext('2d');
       bctx.beginPath();
       bctx.moveTo(prev.x, prev.y);
       bctx.lineTo(x, y);
       bctx.strokeStyle = 'rgba(50,205,50,0.4)';
-      bctx.lineWidth = bw;
+      bctx.lineWidth = imgR * 2;
       bctx.lineCap = 'round';
       bctx.stroke();
     });
@@ -318,13 +326,14 @@
       if (!brushDrawing) return;
       brushDrawing = false;
       brushFgCenters = null;
-      renderContourPreview();
+      // Defer detection so the UI doesn't freeze during drawing
+      setTimeout(function () { renderContourPreview(); }, 10);
     });
     brushCanvas.addEventListener('mouseleave', function () {
       if (!brushDrawing) return;
       brushDrawing = false;
       brushFgCenters = null;
-      renderContourPreview();
+      setTimeout(function () { renderContourPreview(); }, 10);
     });
 
     // Save test image (snapshot + debug info)
@@ -366,13 +375,10 @@
         drawBrushStrokes('canvas-contour');
         return;
       }
-      // Always compute fresh bg centers for brush mode (don't reuse from other modes)
-      var brushBgCenters = cachedCenters;
-      if (!brushBgCenters) {
-        var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, 5);
-        brushBgCenters = kMeansClusters(bSamples, 4, 10);
-        cachedCenters = brushBgCenters;
-      }
+      // Always compute fresh bg centers for brush mode (border 8% for better coverage)
+      var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, 8);
+      var brushBgCenters = kMeansClusters(bSamples, 5, 15);
+      // Fg centers from brushed pixels
       if (!brushFgCenters) {
         var fgSamples = [];
         for (var bi = 0; bi < brushMask.length; bi++) {
@@ -387,19 +393,20 @@
           drawBrushStrokes('canvas-contour');
           return;
         }
-        if (fgSamples.length > 5000) {
-          var bstep = Math.floor(fgSamples.length / 5000);
+        if (fgSamples.length > 8000) {
+          var bstep = Math.floor(fgSamples.length / 8000);
           var bsub = [];
           for (var bsi = 0; bsi < fgSamples.length; bsi += bstep) bsub.push(fgSamples[bsi]);
           fgSamples = bsub;
         }
-        var fgK = Math.min(4, Math.max(1, Math.ceil(fgSamples.length / 100)));
-        brushFgCenters = kMeansClusters(fgSamples, fgK, 10);
+        var fgK = Math.min(5, Math.max(2, Math.ceil(fgSamples.length / 200)));
+        brushFgCenters = kMeansClusters(fgSamples, fgK, 15);
       }
       binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, brushBgCenters, brushFgCenters);
-      // Edge-aware morphology to clean up
-      binary = edgeAwareDilate(binary, imgW, imgH, 2, gradientMap, 50);
-      binary = edgeAwareErode(binary, imgW, imgH, 2, gradientMap, 50);
+      // Morphological close (fill gaps) then open (remove noise)
+      binary = dilate(binary, imgW, imgH, 2);
+      binary = erode(binary, imgW, imgH, 3);
+      binary = dilate(binary, imgW, imgH, 1);
     } else {
       var thresh = parseInt($('slider-threshold').value);
       var blur = parseInt($('slider-blur').value);
@@ -1369,24 +1376,27 @@
   function detectForegroundBrush(rgba, w, h, bMask, bgCenters, fgCenters) {
     var fg = new Uint8Array(w * h);
     for (var i = 0; i < fg.length; i++) {
+      // Brushed pixels are always foreground
+      if (bMask[i]) { fg[i] = 1; continue; }
       var off = i * 4;
       var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
-      var minBg = Infinity;
+      // Distance to nearest background cluster (squared, faster)
+      var minBgSq = Infinity;
       for (var c = 0; c < bgCenters.length; c++) {
         var dr = r - bgCenters[c][0], dg = g - bgCenters[c][1], db = b - bgCenters[c][2];
         var d = dr * dr + dg * dg + db * db;
-        if (d < minBg) minBg = d;
+        if (d < minBgSq) minBgSq = d;
       }
-      var minFg = Infinity;
+      // Distance to nearest foreground cluster (squared)
+      var minFgSq = Infinity;
       for (var f = 0; f < fgCenters.length; f++) {
         var dr2 = r - fgCenters[f][0], dg2 = g - fgCenters[f][1], db2 = b - fgCenters[f][2];
         var d2 = dr2 * dr2 + dg2 * dg2 + db2 * db2;
-        if (d2 < minFg) minFg = d2;
+        if (d2 < minFgSq) minFgSq = d2;
       }
-      var distBg = Math.sqrt(minBg);
-      var distFg = Math.sqrt(minFg);
-      if (distBg / (distBg + distFg + 0.001) > 0.45) fg[i] = 1;
-      if (bMask[i]) fg[i] = 1;
+      // Classify: foreground if closer to fg clusters (using squared distances to avoid sqrt)
+      // Threshold 0.5 = neutral boundary, pixel must be closer to fg than bg
+      if (minFgSq < minBgSq) fg[i] = 1;
     }
     return fg;
   }
@@ -1419,17 +1429,17 @@
     if (brushStrokes.length === 0) return;
     var canvas = $(canvasId);
     var ctx = canvas.getContext('2d');
-    var bw = parseInt($('slider-brush-width').value);
-    ctx.strokeStyle = 'rgba(50,205,50,0.4)';
-    ctx.lineWidth = bw;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (var s = 0; s < brushStrokes.length; s++) {
       var stroke = brushStrokes[s];
+      var strokeR = stroke[0].r || 10;
+      ctx.strokeStyle = 'rgba(50,205,50,0.35)';
+      ctx.lineWidth = strokeR * 2;
       if (stroke.length < 2) {
         ctx.beginPath();
-        ctx.arc(stroke[0].x, stroke[0].y, bw / 2, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(50,205,50,0.4)';
+        ctx.arc(stroke[0].x, stroke[0].y, strokeR, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(50,205,50,0.35)';
         ctx.fill();
         continue;
       }
