@@ -17,6 +17,10 @@
   var gradientMap = null;       // Float32Array (w * h), cached Sobel gradient
   var cachedCenters = null;     // k-means centroids array
   var cachedBorderPercent = 0;  // last border % for cache invalidation
+  var brushMask = null;          // Uint8Array (w*h), 1 = brushed pixel
+  var brushStrokes = [];         // [[{x,y},...]] for overlay rendering
+  var brushFgCenters = null;     // k-means centroids from brushed pixels
+  var brushDrawing = false;      // currently drawing a stroke
 
   // --- DOM refs ---
   function $(id) { return document.getElementById(id); }
@@ -77,6 +81,10 @@
       gradientMap = null;
       cachedCenters = null;
       cachedBorderPercent = 0;
+      brushMask = null;
+      brushStrokes = [];
+      brushFgCenters = null;
+      brushDrawing = false;
       $('cal-status').textContent = '';
       $('cal-mm').value = '';
       goToStep(1);
@@ -162,7 +170,8 @@
     var modeHints = {
       advanced: 'Multi-kluster bakgrundsmodell med kantdetektering. Hanterar mönstrad duk, träbord och skuggor.',
       object: 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.',
-      threshold: 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).'
+      threshold: 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).',
+      brush: 'Måla på objektet med penseln. Algoritmen lär sig färgerna och hittar hela objektet automatiskt.'
     };
 
     // Mode selector
@@ -175,6 +184,9 @@
         $('advanced-controls').style.display = detectMode === 'advanced' ? '' : 'none';
         $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
         $('threshold-controls').style.display = detectMode === 'threshold' ? '' : 'none';
+        $('brush-controls').style.display = detectMode === 'brush' ? '' : 'none';
+        var cc = $('canvas-contour');
+        cc.style.cursor = detectMode === 'brush' ? 'crosshair' : '';
         $('mode-hint').textContent = modeHints[detectMode] || '';
         renderContourPreview();
       });
@@ -219,6 +231,71 @@
 
     $('toggle-invert').addEventListener('change', function () { renderContourPreview(); });
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
+
+    // Brush mode controls
+    $('slider-brush-width').addEventListener('input', function () {
+      $('val-brush-width').textContent = this.value;
+    });
+    $('btn-brush-clear').addEventListener('click', function () {
+      brushMask = null;
+      brushStrokes = [];
+      brushFgCenters = null;
+      renderContourPreview();
+    });
+
+    // Brush canvas drawing
+    var brushCanvas = $('canvas-contour');
+    brushCanvas.addEventListener('mousedown', function (e) {
+      if (detectMode !== 'brush') return;
+      e.preventDefault();
+      brushDrawing = true;
+      var r = this.getBoundingClientRect();
+      var sx = imgW / r.width, sy = imgH / r.height;
+      var x = (e.clientX - r.left) * sx;
+      var y = (e.clientY - r.top) * sy;
+      brushStrokes.push([{ x: x, y: y }]);
+      if (!brushMask) brushMask = new Uint8Array(imgW * imgH);
+      var bw = parseInt($('slider-brush-width').value);
+      brushCircle(brushMask, imgW, imgH, x, y, bw / 2);
+      var bctx = this.getContext('2d');
+      bctx.beginPath();
+      bctx.arc(x, y, bw / 2, 0, Math.PI * 2);
+      bctx.fillStyle = 'rgba(50,205,50,0.4)';
+      bctx.fill();
+    });
+    brushCanvas.addEventListener('mousemove', function (e) {
+      if (!brushDrawing) return;
+      e.preventDefault();
+      var r = this.getBoundingClientRect();
+      var sx = imgW / r.width, sy = imgH / r.height;
+      var x = (e.clientX - r.left) * sx;
+      var y = (e.clientY - r.top) * sy;
+      var stroke = brushStrokes[brushStrokes.length - 1];
+      var prev = stroke[stroke.length - 1];
+      stroke.push({ x: x, y: y });
+      var bw = parseInt($('slider-brush-width').value);
+      brushLine(brushMask, imgW, imgH, prev.x, prev.y, x, y, bw / 2);
+      var bctx = this.getContext('2d');
+      bctx.beginPath();
+      bctx.moveTo(prev.x, prev.y);
+      bctx.lineTo(x, y);
+      bctx.strokeStyle = 'rgba(50,205,50,0.4)';
+      bctx.lineWidth = bw;
+      bctx.lineCap = 'round';
+      bctx.stroke();
+    });
+    brushCanvas.addEventListener('mouseup', function () {
+      if (!brushDrawing) return;
+      brushDrawing = false;
+      brushFgCenters = null;
+      renderContourPreview();
+    });
+    brushCanvas.addEventListener('mouseleave', function () {
+      if (!brushDrawing) return;
+      brushDrawing = false;
+      brushFgCenters = null;
+      renderContourPreview();
+    });
   }
 
   function renderContourPreview() {
@@ -255,6 +332,40 @@
         binary = dilate(binary, imgW, imgH, grow);
         binary = erode(binary, imgW, imgH, grow);
       }
+    } else if (detectMode === 'brush') {
+      if (brushStrokes.length === 0) {
+        contours = [];
+        drawContourOverlay('canvas-contour', contours, null);
+        drawBrushStrokes('canvas-contour');
+        return;
+      }
+      var brushBorder = 5;
+      if (!cachedCenters) {
+        var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, brushBorder);
+        cachedCenters = kMeansClusters(bSamples, 4, 10);
+      }
+      if (!brushFgCenters) {
+        var fgSamples = [];
+        for (var bi = 0; bi < brushMask.length; bi++) {
+          if (brushMask[bi]) {
+            var boff = bi * 4;
+            fgSamples.push([rgbaData[boff], rgbaData[boff + 1], rgbaData[boff + 2]]);
+          }
+        }
+        if (fgSamples.length > 5000) {
+          var bstep = Math.floor(fgSamples.length / 5000);
+          var bsub = [];
+          for (var bsi = 0; bsi < fgSamples.length; bsi += bstep) bsub.push(fgSamples[bsi]);
+          fgSamples = bsub;
+        }
+        brushFgCenters = kMeansClusters(fgSamples, Math.min(4, Math.max(1, Math.ceil(fgSamples.length / 50))), 10);
+      }
+      binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, cachedCenters, brushFgCenters);
+      var brushGrow = 3, brushEdge = 50;
+      if (brushGrow > 0) {
+        binary = edgeAwareDilate(binary, imgW, imgH, brushGrow, gradientMap, brushEdge);
+        binary = edgeAwareErode(binary, imgW, imgH, brushGrow, gradientMap, brushEdge);
+      }
     } else {
       var thresh = parseInt($('slider-threshold').value);
       var blur = parseInt($('slider-blur').value);
@@ -271,17 +382,27 @@
       var pts = stitched[i];
       var area = contourArea(pts);
       if (Math.abs(area) < minArea) continue;
-      if (area < 0) pts.reverse();
+      // Preserve winding direction — signed area determines hole vs outer
       var simplified = douglasPeucker(pts, simplify);
       if (simplified.length < 3) continue;
       if (smooth) simplified = chaikinSmooth(simplified, 2);
-      contours.push({ points: simplified, area: Math.abs(contourArea(simplified)), selected: false });
+      var finalArea = contourArea(simplified);
+      contours.push({ points: simplified, area: Math.abs(finalArea), rawArea: finalArea, selected: false, isHole: false, parentIdx: -1 });
     }
 
     contours.sort(function (a, b) { return b.area - a.area; });
-    if (contours.length > 0) contours[0].selected = true;
+    buildContourHierarchy(contours);
+
+    // Auto-select: largest outer contour + all its direct holes
+    if (contours.length > 0) {
+      contours[0].selected = true;
+      for (var ci = 1; ci < contours.length; ci++) {
+        if (contours[ci].parentIdx === 0) contours[ci].selected = true;
+      }
+    }
 
     drawContourOverlay('canvas-contour', contours, null);
+    if (detectMode === 'brush') drawBrushStrokes('canvas-contour');
   }
 
   function drawContourOverlay(canvasId, cList, highlightIdx) {
@@ -304,12 +425,17 @@
       }
       ctx.closePath();
       if (c.selected) {
-        ctx.strokeStyle = '#d4722a';
+        if (c.isHole) {
+          ctx.strokeStyle = '#2a7ad4';
+          ctx.fillStyle = 'rgba(42,122,212,0.15)';
+        } else {
+          ctx.strokeStyle = '#d4722a';
+          ctx.fillStyle = 'rgba(212,114,42,0.15)';
+        }
         ctx.lineWidth = 2;
-        ctx.fillStyle = 'rgba(212,114,42,0.15)';
         ctx.fill();
       } else {
-        ctx.strokeStyle = 'rgba(200,200,200,0.6)';
+        ctx.strokeStyle = c.isHole ? 'rgba(100,150,220,0.6)' : 'rgba(200,200,200,0.6)';
         ctx.lineWidth = 1;
       }
       if (highlightIdx === i) {
@@ -667,16 +793,25 @@
       (function (idx) {
         var c = contours[idx];
         var item = document.createElement('div');
-        item.className = 'contour-item' + (c.selected ? ' selected' : '');
+        item.className = 'contour-item' + (c.selected ? ' selected' : '') + (c.isHole ? ' hole' : '');
+        var label = c.isHole ? 'H\u00e5l ' + (idx + 1) : 'Kontur ' + (idx + 1);
         item.innerHTML =
           '<input type="checkbox"' + (c.selected ? ' checked' : '') + '>' +
-          '<span class="contour-info">Kontur ' + (idx + 1) + '</span>' +
+          '<span class="contour-info">' + label + '</span>' +
           '<span class="contour-area">' + Math.round(c.area) + ' px\u00B2 \u2022 ' + c.points.length + ' punkter</span>';
         item.addEventListener('click', function (e) {
+          var newState;
           if (e.target.tagName === 'INPUT') {
-            c.selected = e.target.checked;
+            newState = e.target.checked;
           } else {
-            c.selected = !c.selected;
+            newState = !c.selected;
+          }
+          c.selected = newState;
+          // Toggle all direct children when toggling an outer contour
+          if (!c.isHole) {
+            for (var ci = 0; ci < contours.length; ci++) {
+              if (contours[ci].parentIdx === idx) contours[ci].selected = newState;
+            }
           }
           renderSelectStep();
         });
@@ -802,10 +937,13 @@
       ctx.moveTo(pts[0].x, pts[0].y);
       for (var j = 1; j < pts.length; j++) ctx.lineTo(pts[j].x, pts[j].y);
       ctx.closePath();
-      ctx.strokeStyle = '#6b4c2a';
+      ctx.strokeStyle = selected[i].isHole ? '#2a5a9e' : '#6b4c2a';
       ctx.lineWidth = 1.5;
       ctx.stroke();
     }
+
+    var outerCount = selected.filter(function (c) { return !c.isHole; }).length;
+    var holeCount = selected.filter(function (c) { return c.isHole; }).length;
 
     var scaleStr = pixPerMm > 0
       ? pixPerMm.toFixed(2) + ' px/mm'
@@ -813,10 +951,11 @@
     var unitStr = pixPerMm > 0 ? 'mm' : 'px';
 
     $('export-info').innerHTML =
-      '<div class="export-info-row"><span>Konturer:</span><span>' + selected.length + '</span></div>' +
+      '<div class="export-info-row"><span>Konturer:</span><span>' + outerCount + (holeCount > 0 ? ' + ' + holeCount + ' h\u00e5l' : '') + '</span></div>' +
       '<div class="export-info-row"><span>Totalt punkter:</span><span>' + totalPts + '</span></div>' +
       '<div class="export-info-row"><span>Skala:</span><span>' + scaleStr + '</span></div>' +
       '<div class="export-info-row"><span>Enheter i DXF:</span><span>' + unitStr + '</span></div>' +
+      (holeCount > 0 ? '<div class="export-info-row" style="margin-top:0.5rem"><span>H\u00e5l exporteras p\u00e5 lager HOLES med omv\u00e4nd riktning.</span><span></span></div>' : '') +
       (pixPerMm === 0 ? '<div class="export-info-row" style="color:#9e3030;margin-top:0.5rem"><span>OBS: Utan kalibrering exporteras koordinaterna i pixlar.</span><span></span></div>' : '');
   }
 
@@ -1099,6 +1238,37 @@
   }
 
   // =====================
+  // Contour hierarchy (hole detection)
+  // =====================
+  function buildContourHierarchy(cList) {
+    // cList must be sorted by area descending (largest first).
+    // A contour whose first point is inside a larger contour is a child.
+    // Depth toggles: outer(0) → hole(1) → island(2) → hole(3) → ...
+    for (var i = 0; i < cList.length; i++) {
+      cList[i].isHole = false;
+      cList[i].parentIdx = -1;
+    }
+    for (var i = 1; i < cList.length; i++) {
+      var testPt = cList[i].points[0];
+      // Find smallest enclosing contour (nearest parent by area)
+      for (var j = i - 1; j >= 0; j--) {
+        if (pointInPolygon(testPt.x, testPt.y, cList[j].points)) {
+          cList[i].parentIdx = j;
+          break;
+        }
+      }
+      // Compute depth to determine hole vs island
+      var depth = 0;
+      var pi = cList[i].parentIdx;
+      while (pi >= 0) {
+        depth++;
+        pi = cList[pi].parentIdx;
+      }
+      cList[i].isHole = (depth % 2 === 1);
+    }
+  }
+
+  // =====================
   // Douglas-Peucker simplification
   // =====================
   function douglasPeucker(pts, epsilon) {
@@ -1160,6 +1330,85 @@
   }
 
   // =====================
+  // Brush-assisted foreground detection
+  // =====================
+  function detectForegroundBrush(rgba, w, h, bMask, bgCenters, fgCenters) {
+    var fg = new Uint8Array(w * h);
+    for (var i = 0; i < fg.length; i++) {
+      var off = i * 4;
+      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
+      var minBg = Infinity;
+      for (var c = 0; c < bgCenters.length; c++) {
+        var dr = r - bgCenters[c][0], dg = g - bgCenters[c][1], db = b - bgCenters[c][2];
+        var d = dr * dr + dg * dg + db * db;
+        if (d < minBg) minBg = d;
+      }
+      var minFg = Infinity;
+      for (var f = 0; f < fgCenters.length; f++) {
+        var dr2 = r - fgCenters[f][0], dg2 = g - fgCenters[f][1], db2 = b - fgCenters[f][2];
+        var d2 = dr2 * dr2 + dg2 * dg2 + db2 * db2;
+        if (d2 < minFg) minFg = d2;
+      }
+      var distBg = Math.sqrt(minBg);
+      var distFg = Math.sqrt(minFg);
+      if (distBg / (distBg + distFg + 0.001) > 0.45) fg[i] = 1;
+      if (bMask[i]) fg[i] = 1;
+    }
+    return fg;
+  }
+
+  function brushCircle(mask, w, h, cx, cy, r) {
+    var r2 = r * r;
+    var x0 = Math.max(0, Math.floor(cx - r));
+    var x1 = Math.min(w - 1, Math.ceil(cx + r));
+    var y0 = Math.max(0, Math.floor(cy - r));
+    var y1 = Math.min(h - 1, Math.ceil(cy + r));
+    for (var y = y0; y <= y1; y++) {
+      for (var x = x0; x <= x1; x++) {
+        var dx = x - cx, dy = y - cy;
+        if (dx * dx + dy * dy <= r2) mask[y * w + x] = 1;
+      }
+    }
+  }
+
+  function brushLine(mask, w, h, x0, y0, x1, y1, r) {
+    var dx = x1 - x0, dy = y1 - y0;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var steps = Math.max(1, Math.ceil(dist / Math.max(1, r * 0.5)));
+    for (var i = 0; i <= steps; i++) {
+      var t = i / steps;
+      brushCircle(mask, w, h, x0 + dx * t, y0 + dy * t, r);
+    }
+  }
+
+  function drawBrushStrokes(canvasId) {
+    if (brushStrokes.length === 0) return;
+    var canvas = $(canvasId);
+    var ctx = canvas.getContext('2d');
+    var bw = parseInt($('slider-brush-width').value);
+    ctx.strokeStyle = 'rgba(50,205,50,0.4)';
+    ctx.lineWidth = bw;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (var s = 0; s < brushStrokes.length; s++) {
+      var stroke = brushStrokes[s];
+      if (stroke.length < 2) {
+        ctx.beginPath();
+        ctx.arc(stroke[0].x, stroke[0].y, bw / 2, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(50,205,50,0.4)';
+        ctx.fill();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(stroke[0].x, stroke[0].y);
+      for (var p = 1; p < stroke.length; p++) {
+        ctx.lineTo(stroke[p].x, stroke[p].y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // =====================
   // DXF R12 generation
   // =====================
   function generateDXF(selected, ppm) {
@@ -1172,10 +1421,16 @@
     lines.push('0', 'SECTION', '2', 'ENTITIES');
 
     for (var i = 0; i < selected.length; i++) {
-      var pts = selected[i].points;
-      lines.push('0', 'POLYLINE', '8', '0', '66', '1', '70', '1');
+      var c = selected[i];
+      var pts = c.points.slice();
+      // DXF Y-flip inverts winding: image CW → DXF CCW, image CCW → DXF CW
+      // Standard: outer = CCW in DXF (positive image area), hole = CW in DXF (negative image area)
+      var a = contourArea(pts);
+      if (!c.isHole && a < 0) pts.reverse();
+      if (c.isHole && a > 0) pts.reverse();
+      lines.push('0', 'POLYLINE', '8', c.isHole ? 'HOLES' : '0', '66', '1', '70', '1');
       for (var j = 0; j < pts.length; j++) {
-        lines.push('0', 'VERTEX', '8', '0');
+        lines.push('0', 'VERTEX', '8', c.isHole ? 'HOLES' : '0');
         lines.push('10', (pts[j].x * scale).toFixed(4));
         lines.push('20', (-pts[j].y * scale).toFixed(4));
         lines.push('30', '0.0000');

@@ -208,6 +208,12 @@
       font-size: 0.8rem;
       color: var(--text-light);
     }
+    .contour-item.hole {
+      margin-left: 1.5rem;
+    }
+    .contour-item.hole .contour-info {
+      color: #2a7ad4;
+    }
 
     /* Calibration */
     .cal-instruction {
@@ -361,6 +367,7 @@
         <button class="mode-btn active" data-mode="advanced">Hitta objekt</button>
         <button class="mode-btn" data-mode="object">Enkel (färg)</button>
         <button class="mode-btn" data-mode="threshold">Tröskel (ljusstyrka)</button>
+        <button class="mode-btn" data-mode="brush">Pensel</button>
       </div>
       <p class="mode-hint" id="mode-hint">Multi-kluster bakgrundsmodell med kantdetektering. Hanterar mönstrad duk, träbord och skuggor.</p>
       <div class="canvas-wrap">
@@ -422,6 +429,17 @@
           </div>
           <label for="toggle-invert">Invertera (mörk bakgrund)</label>
         </div>
+      </div>
+
+      <!-- Brush mode controls -->
+      <div id="brush-controls" style="display:none">
+        <div class="controls-grid">
+          <div class="control-group">
+            <label>Penselbredd <span id="val-brush-width">15</span> px</label>
+            <input type="range" id="slider-brush-width" min="5" max="30" value="15">
+          </div>
+        </div>
+        <button class="btn btn-sm" id="btn-brush-clear" style="margin-top:0.75rem">Rensa pensel</button>
       </div>
 
       <!-- Shared controls -->
