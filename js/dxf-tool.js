@@ -283,6 +283,12 @@
       return Math.max(1, screenPx * sx / 2);
     }
     var brushCanvas = $('canvas-contour');
+    // Prevent native drag (browser tries to drag the canvas image)
+    brushCanvas.setAttribute('draggable', 'false');
+    brushCanvas.addEventListener('dragstart', function (e) { e.preventDefault(); });
+    brushCanvas.style.touchAction = 'none';
+    brushCanvas.style.userSelect = 'none';
+    brushCanvas.style.webkitUserSelect = 'none';
     brushCanvas.addEventListener('mousedown', function (e) {
       if (detectMode !== 'brush') return;
       e.preventDefault();
