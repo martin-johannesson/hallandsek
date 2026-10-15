@@ -2,3 +2,5 @@
 Thumbs.db
 *.swp
 *~
+test_images/
+.gh_token

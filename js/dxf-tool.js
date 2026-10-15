@@ -13,7 +13,7 @@
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
-  var detectMode = 'advanced'; // 'advanced', 'object' or 'threshold'
+  var detectMode = 'threshold'; // 'object', 'threshold' or 'brush'
   var gradientMap = null;       // Float32Array (w * h), cached Sobel gradient
   var cachedCenters = null;     // k-means centroids array
   var cachedBorderPercent = 0;  // last border % for cache invalidation
@@ -21,6 +21,7 @@
   var brushStrokes = [];         // [[{x,y},...]] for overlay rendering
   var brushFgCenters = null;     // k-means centroids from brushed pixels
   var brushDrawing = false;      // currently drawing a stroke
+  var originalDataUrl = null;    // original image data URL for debug saving
 
   // --- DOM refs ---
   function $(id) { return document.getElementById(id); }
@@ -47,7 +48,10 @@
     }
     currentStep = n;
     updateStepDots();
-    if (n === 2) renderContourPreview();
+    if (n === 2) {
+      renderContourPreview();
+      $('canvas-contour').style.cursor = detectMode === 'brush' ? 'crosshair' : '';
+    }
     if (n === 3) renderSelectStep();
     if (n === 4) renderCalStep();
     if (n === 5) renderExportStep();
@@ -85,6 +89,7 @@
       brushStrokes = [];
       brushFgCenters = null;
       brushDrawing = false;
+      originalDataUrl = null;
       $('cal-status').textContent = '';
       $('cal-mm').value = '';
       goToStep(1);
@@ -120,15 +125,55 @@
     if (!file.type.startsWith('image/')) return;
     var reader = new FileReader();
     reader.onload = function (e) {
+      originalDataUrl = e.target.result;
       var img = new Image();
       img.onload = function () {
         srcImage = img;
         processImage();
         goToStep(2);
+        // Auto-save original to local server (silent fail if not running)
+        saveToServer({ original: originalDataUrl });
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
+  }
+
+  function saveToServer(data) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', '/api/save-test', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.send(JSON.stringify(data));
+    } catch (e) { /* silent */ }
+  }
+
+  function collectDebugInfo() {
+    return {
+      mode: detectMode,
+      contours: contours.length,
+      selected: contours.filter(function (c) { return c.selected; }).length,
+      holes: contours.filter(function (c) { return c.isHole; }).length,
+      imgW: imgW,
+      imgH: imgH,
+      pixPerMm: pixPerMm,
+      sliders: {
+        area: $('slider-area') ? $('slider-area').value : null,
+        simplify: $('slider-simplify') ? $('slider-simplify').value : null,
+        smooth: $('toggle-smooth') ? $('toggle-smooth').checked : null,
+        advTolerance: $('slider-adv-tolerance') ? $('slider-adv-tolerance').value : null,
+        advEdge: $('slider-adv-edge') ? $('slider-adv-edge').value : null,
+        advGrow: $('slider-adv-grow') ? $('slider-adv-grow').value : null,
+        advBorder: $('slider-adv-border') ? $('slider-adv-border').value : null,
+        threshold: $('slider-threshold') ? $('slider-threshold').value : null,
+        tolerance: $('slider-tolerance') ? $('slider-tolerance').value : null,
+        brushWidth: $('slider-brush-width') ? $('slider-brush-width').value : null
+      },
+      contourDetails: contours.map(function (c, i) {
+        return { idx: i, area: Math.round(c.area), isHole: c.isHole, parentIdx: c.parentIdx, selected: c.selected, points: c.points.length };
+      }),
+      timestamp: new Date().toISOString()
+    };
   }
 
   function processImage() {
@@ -168,7 +213,6 @@
   // =====================
   function setupStep2() {
     var modeHints = {
-      advanced: 'Multi-kluster bakgrundsmodell med kantdetektering. Hanterar mönstrad duk, träbord och skuggor.',
       object: 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.',
       threshold: 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).',
       brush: 'Måla på objektet med penseln. Algoritmen lär sig färgerna och hittar hela objektet automatiskt.'
@@ -181,7 +225,6 @@
         modeButtons.forEach(function (b) { b.classList.remove('active'); });
         btn.classList.add('active');
         detectMode = btn.dataset.mode;
-        $('advanced-controls').style.display = detectMode === 'advanced' ? '' : 'none';
         $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
         $('threshold-controls').style.display = detectMode === 'threshold' ? '' : 'none';
         $('brush-controls').style.display = detectMode === 'brush' ? '' : 'none';
@@ -190,19 +233,6 @@
         $('mode-hint').textContent = modeHints[detectMode] || '';
         renderContourPreview();
       });
-    });
-
-    // Advanced mode sliders
-    ['adv-tolerance', 'adv-edge', 'adv-grow'].forEach(function (name) {
-      $('slider-' + name).addEventListener('input', function () {
-        $('val-' + name).textContent = this.value;
-        renderContourPreview();
-      });
-    });
-    $('slider-adv-border').addEventListener('input', function () {
-      $('val-adv-border').textContent = this.value;
-      cachedCenters = null; // invalidate k-means cache
-      renderContourPreview();
     });
 
     // Object mode sliders
@@ -296,6 +326,21 @@
       brushFgCenters = null;
       renderContourPreview();
     });
+
+    // Save test image (snapshot + debug info)
+    $('btn-save-test').addEventListener('click', function () {
+      var canvas = $('canvas-contour');
+      var snapshotUrl = canvas.toDataURL('image/png');
+      var debug = collectDebugInfo();
+      // Save to local server
+      saveToServer({ snapshot: snapshotUrl, original: originalDataUrl, debug: debug });
+      // Also trigger browser download as fallback
+      var a = document.createElement('a');
+      a.href = snapshotUrl;
+      var ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      a.download = 'dxf-test-' + ts + '.png';
+      a.click();
+    });
   }
 
   function renderContourPreview() {
@@ -305,25 +350,7 @@
     var smooth = $('toggle-smooth').checked;
     var binary;
 
-    if (detectMode === 'advanced') {
-      var advTol = parseInt($('slider-adv-tolerance').value);
-      var advEdge = parseInt($('slider-adv-edge').value);
-      var advGrow = parseInt($('slider-adv-grow').value);
-      var advBorder = parseInt($('slider-adv-border').value);
-
-      // Recompute k-means only if border % changed
-      if (!cachedCenters || cachedBorderPercent !== advBorder) {
-        var samples = sampleBorderPixels(rgbaData, imgW, imgH, advBorder);
-        cachedCenters = kMeansClusters(samples, 4, 10);
-        cachedBorderPercent = advBorder;
-      }
-
-      binary = detectForegroundAdvanced(rgbaData, imgW, imgH, advTol, cachedCenters);
-      if (advGrow > 0) {
-        binary = edgeAwareDilate(binary, imgW, imgH, advGrow, gradientMap, advEdge);
-        binary = edgeAwareErode(binary, imgW, imgH, advGrow, gradientMap, advEdge);
-      }
-    } else if (detectMode === 'object') {
+    if (detectMode === 'object') {
       var tolerance = parseInt($('slider-tolerance').value);
       var grow = parseInt($('slider-grow').value);
       binary = detectForeground(rgbaData, imgW, imgH, tolerance);
@@ -333,16 +360,18 @@
         binary = erode(binary, imgW, imgH, grow);
       }
     } else if (detectMode === 'brush') {
-      if (brushStrokes.length === 0) {
+      if (brushStrokes.length === 0 || !brushMask) {
         contours = [];
         drawContourOverlay('canvas-contour', contours, null);
         drawBrushStrokes('canvas-contour');
         return;
       }
-      var brushBorder = 5;
-      if (!cachedCenters) {
-        var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, brushBorder);
-        cachedCenters = kMeansClusters(bSamples, 4, 10);
+      // Always compute fresh bg centers for brush mode (don't reuse from other modes)
+      var brushBgCenters = cachedCenters;
+      if (!brushBgCenters) {
+        var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, 5);
+        brushBgCenters = kMeansClusters(bSamples, 4, 10);
+        cachedCenters = brushBgCenters;
       }
       if (!brushFgCenters) {
         var fgSamples = [];
@@ -352,20 +381,25 @@
             fgSamples.push([rgbaData[boff], rgbaData[boff + 1], rgbaData[boff + 2]]);
           }
         }
+        if (fgSamples.length === 0) {
+          contours = [];
+          drawContourOverlay('canvas-contour', contours, null);
+          drawBrushStrokes('canvas-contour');
+          return;
+        }
         if (fgSamples.length > 5000) {
           var bstep = Math.floor(fgSamples.length / 5000);
           var bsub = [];
           for (var bsi = 0; bsi < fgSamples.length; bsi += bstep) bsub.push(fgSamples[bsi]);
           fgSamples = bsub;
         }
-        brushFgCenters = kMeansClusters(fgSamples, Math.min(4, Math.max(1, Math.ceil(fgSamples.length / 50))), 10);
+        var fgK = Math.min(4, Math.max(1, Math.ceil(fgSamples.length / 100)));
+        brushFgCenters = kMeansClusters(fgSamples, fgK, 10);
       }
-      binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, cachedCenters, brushFgCenters);
-      var brushGrow = 3, brushEdge = 50;
-      if (brushGrow > 0) {
-        binary = edgeAwareDilate(binary, imgW, imgH, brushGrow, gradientMap, brushEdge);
-        binary = edgeAwareErode(binary, imgW, imgH, brushGrow, gradientMap, brushEdge);
-      }
+      binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, brushBgCenters, brushFgCenters);
+      // Edge-aware morphology to clean up
+      binary = edgeAwareDilate(binary, imgW, imgH, 2, gradientMap, 50);
+      binary = edgeAwareErode(binary, imgW, imgH, 2, gradientMap, 50);
     } else {
       var thresh = parseInt($('slider-threshold').value);
       var blur = parseInt($('slider-blur').value);

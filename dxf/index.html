@@ -364,36 +364,13 @@
     <div class="step-panel hidden" id="step-2">
       <h3>2. Hitta konturer</h3>
       <div class="mode-selector" id="mode-selector">
-        <button class="mode-btn active" data-mode="advanced">Hitta objekt</button>
+        <button class="mode-btn active" data-mode="threshold">Tröskel (ljusstyrka)</button>
         <button class="mode-btn" data-mode="object">Enkel (färg)</button>
-        <button class="mode-btn" data-mode="threshold">Tröskel (ljusstyrka)</button>
         <button class="mode-btn" data-mode="brush">Pensel</button>
       </div>
-      <p class="mode-hint" id="mode-hint">Multi-kluster bakgrundsmodell med kantdetektering. Hanterar mönstrad duk, träbord och skuggor.</p>
+      <p class="mode-hint" id="mode-hint">Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).</p>
       <div class="canvas-wrap">
         <canvas id="canvas-contour"></canvas>
-      </div>
-
-      <!-- Advanced mode controls -->
-      <div id="advanced-controls">
-        <div class="controls-grid">
-          <div class="control-group">
-            <label>Känslighet <span id="val-adv-tolerance">40</span></label>
-            <input type="range" id="slider-adv-tolerance" min="5" max="120" value="40">
-          </div>
-          <div class="control-group">
-            <label>Kantskärpa <span id="val-adv-edge">50</span></label>
-            <input type="range" id="slider-adv-edge" min="0" max="100" value="50">
-          </div>
-          <div class="control-group">
-            <label>Utfyllnad <span id="val-adv-grow">3</span> px</label>
-            <input type="range" id="slider-adv-grow" min="0" max="10" value="3">
-          </div>
-          <div class="control-group">
-            <label>Bakgrundsbredd <span id="val-adv-border">5</span> %</label>
-            <input type="range" id="slider-adv-border" min="2" max="15" value="5">
-          </div>
-        </div>
       </div>
 
       <!-- Object mode controls -->
@@ -411,7 +388,7 @@
       </div>
 
       <!-- Threshold mode controls -->
-      <div id="threshold-controls" style="display:none">
+      <div id="threshold-controls">
         <div class="controls-grid">
           <div class="control-group">
             <label>Tröskel <span id="val-threshold">128</span></label>
@@ -462,6 +439,7 @@
       </div>
       <div class="step-nav">
         <button class="btn" id="btn-back-1">&larr; Tillbaka</button>
+        <button class="btn btn-sm" id="btn-save-test" title="Sparar bilden lokalt för felsökning">Spara testbild</button>
         <button class="btn btn-primary" id="btn-next-2">Välj konturer &rarr;</button>
       </div>
     </div>
