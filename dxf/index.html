@@ -364,47 +364,25 @@
     <div class="step-panel hidden" id="step-2">
       <h3>2. Hitta konturer</h3>
       <div class="mode-selector" id="mode-selector">
-        <button class="mode-btn active" data-mode="threshold">Tröskel (ljusstyrka)</button>
-        <button class="mode-btn" data-mode="object">Enkel (färg)</button>
+        <button class="mode-btn active" data-mode="object">Färg</button>
         <button class="mode-btn" data-mode="brush">Pensel</button>
       </div>
-      <p class="mode-hint" id="mode-hint">Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).</p>
+      <p class="mode-hint" id="mode-hint">Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.</p>
       <div class="canvas-wrap">
         <canvas id="canvas-contour"></canvas>
       </div>
 
       <!-- Object mode controls -->
-      <div id="object-controls" style="display:none">
+      <div id="object-controls">
         <div class="controls-grid">
           <div class="control-group">
             <label>Känslighet <span id="val-tolerance">40</span></label>
-            <input type="range" id="slider-tolerance" min="5" max="120" value="40">
+            <input type="range" id="slider-tolerance" min="5" max="300" value="40">
           </div>
           <div class="control-group">
             <label>Utfyllnad <span id="val-grow">3</span> px</label>
             <input type="range" id="slider-grow" min="0" max="10" value="3">
           </div>
-        </div>
-      </div>
-
-      <!-- Threshold mode controls -->
-      <div id="threshold-controls">
-        <div class="controls-grid">
-          <div class="control-group">
-            <label>Tröskel <span id="val-threshold">128</span></label>
-            <input type="range" id="slider-threshold" min="0" max="255" value="128">
-          </div>
-          <div class="control-group">
-            <label>Oskärpa <span id="val-blur">1</span></label>
-            <input type="range" id="slider-blur" min="0" max="5" value="1">
-          </div>
-        </div>
-        <div class="toggle-row">
-          <div class="toggle-switch">
-            <input type="checkbox" id="toggle-invert">
-            <span class="toggle-slider"></span>
-          </div>
-          <label for="toggle-invert">Invertera (mörk bakgrund)</label>
         </div>
       </div>
 

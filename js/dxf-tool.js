@@ -13,7 +13,7 @@
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
-  var detectMode = 'threshold'; // 'object', 'threshold' or 'brush'
+  var detectMode = 'object'; // 'object' or 'brush'
   var gradientMap = null;       // Float32Array (w * h), cached Sobel gradient
   var cachedCenters = null;     // k-means centroids array
   var cachedBorderPercent = 0;  // last border % for cache invalidation
@@ -161,12 +161,8 @@
         area: $('slider-area') ? $('slider-area').value : null,
         simplify: $('slider-simplify') ? $('slider-simplify').value : null,
         smooth: $('toggle-smooth') ? $('toggle-smooth').checked : null,
-        advTolerance: $('slider-adv-tolerance') ? $('slider-adv-tolerance').value : null,
-        advEdge: $('slider-adv-edge') ? $('slider-adv-edge').value : null,
-        advGrow: $('slider-adv-grow') ? $('slider-adv-grow').value : null,
-        advBorder: $('slider-adv-border') ? $('slider-adv-border').value : null,
-        threshold: $('slider-threshold') ? $('slider-threshold').value : null,
         tolerance: $('slider-tolerance') ? $('slider-tolerance').value : null,
+        grow: $('slider-grow') ? $('slider-grow').value : null,
         brushWidth: $('slider-brush-width') ? $('slider-brush-width').value : null
       },
       contourDetails: contours.map(function (c, i) {
@@ -214,7 +210,6 @@
   function setupStep2() {
     var modeHints = {
       object: 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.',
-      threshold: 'Delar bilden i ljust/mörkt vid en tröskel. Fungerar bäst med hög kontrast (t.ex. svart objekt på vit bakgrund).',
       brush: 'Måla på objektet med penseln. Algoritmen lär sig färgerna och hittar hela objektet automatiskt.'
     };
 
@@ -226,7 +221,6 @@
         btn.classList.add('active');
         detectMode = btn.dataset.mode;
         $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
-        $('threshold-controls').style.display = detectMode === 'threshold' ? '' : 'none';
         $('brush-controls').style.display = detectMode === 'brush' ? '' : 'none';
         var cc = $('canvas-contour');
         cc.style.cursor = detectMode === 'brush' ? 'crosshair' : '';
@@ -243,14 +237,6 @@
       });
     });
 
-    // Threshold mode sliders
-    ['threshold', 'blur'].forEach(function (name) {
-      $('slider-' + name).addEventListener('input', function () {
-        $('val-' + name).textContent = this.value;
-        renderContourPreview();
-      });
-    });
-
     // Shared sliders
     ['area', 'simplify'].forEach(function (name) {
       $('slider-' + name).addEventListener('input', function () {
@@ -259,7 +245,6 @@
       });
     });
 
-    $('toggle-invert').addEventListener('change', function () { renderContourPreview(); });
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
 
     // Brush mode controls
@@ -273,69 +258,63 @@
       renderContourPreview();
     });
 
-    // Brush canvas drawing
-    // brushScale: convert screen px to image px
+    // Brush canvas drawing — mousemove/mouseup on document to prevent browser stealing events
+    var brushCanvas = $('canvas-contour');
+    brushCanvas.setAttribute('draggable', 'false');
+    brushCanvas.style.touchAction = 'none';
+    brushCanvas.style.userSelect = 'none';
+
     function brushImgRadius() {
-      var canvas = $('canvas-contour');
-      var r = canvas.getBoundingClientRect();
+      var r = brushCanvas.getBoundingClientRect();
       var sx = imgW / r.width;
       var screenPx = parseInt($('slider-brush-width').value);
       return Math.max(1, screenPx * sx / 2);
     }
-    var brushCanvas = $('canvas-contour');
-    // Prevent native drag (browser tries to drag the canvas image)
-    brushCanvas.setAttribute('draggable', 'false');
-    brushCanvas.addEventListener('dragstart', function (e) { e.preventDefault(); });
-    brushCanvas.style.touchAction = 'none';
-    brushCanvas.style.userSelect = 'none';
-    brushCanvas.style.webkitUserSelect = 'none';
-    brushCanvas.addEventListener('mousedown', function (e) {
-      if (detectMode !== 'brush') return;
-      e.preventDefault();
-      brushDrawing = true;
-      var r = this.getBoundingClientRect();
+
+    function canvasCoords(e) {
+      var r = brushCanvas.getBoundingClientRect();
       var sx = imgW / r.width, sy = imgH / r.height;
-      var x = (e.clientX - r.left) * sx;
-      var y = (e.clientY - r.top) * sy;
+      return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
+    }
+
+    brushCanvas.addEventListener('mousedown', function (e) {
+      if (detectMode !== 'brush' || !imgW) return;
+      e.preventDefault();
+      e.stopPropagation();
+      brushDrawing = true;
+      var p = canvasCoords(e);
       var imgR = brushImgRadius();
-      brushStrokes.push([{ x: x, y: y, r: imgR }]);
+      brushStrokes.push([{ x: p.x, y: p.y, r: imgR }]);
       if (!brushMask) brushMask = new Uint8Array(imgW * imgH);
-      brushCircle(brushMask, imgW, imgH, x, y, imgR);
-      var bctx = this.getContext('2d');
-      bctx.beginPath();
-      bctx.arc(x, y, imgR, 0, Math.PI * 2);
-      bctx.fillStyle = 'rgba(50,205,50,0.4)';
-      bctx.fill();
+      brushCircle(brushMask, imgW, imgH, p.x, p.y, imgR);
+      var ctx = brushCanvas.getContext('2d');
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, imgR, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(50,205,50,0.4)';
+      ctx.fill();
     });
-    brushCanvas.addEventListener('mousemove', function (e) {
+
+    // Listen on document so browser can't steal events during drag
+    document.addEventListener('mousemove', function (e) {
       if (!brushDrawing) return;
       e.preventDefault();
-      var r = this.getBoundingClientRect();
-      var sx = imgW / r.width, sy = imgH / r.height;
-      var x = (e.clientX - r.left) * sx;
-      var y = (e.clientY - r.top) * sy;
+      var p = canvasCoords(e);
       var stroke = brushStrokes[brushStrokes.length - 1];
       var prev = stroke[stroke.length - 1];
-      stroke.push({ x: x, y: y });
+      stroke.push({ x: p.x, y: p.y });
       var imgR = stroke[0].r;
-      brushLine(brushMask, imgW, imgH, prev.x, prev.y, x, y, imgR);
-      var bctx = this.getContext('2d');
-      bctx.beginPath();
-      bctx.moveTo(prev.x, prev.y);
-      bctx.lineTo(x, y);
-      bctx.strokeStyle = 'rgba(50,205,50,0.4)';
-      bctx.lineWidth = imgR * 2;
-      bctx.lineCap = 'round';
-      bctx.stroke();
+      brushLine(brushMask, imgW, imgH, prev.x, prev.y, p.x, p.y, imgR);
+      var ctx = brushCanvas.getContext('2d');
+      ctx.beginPath();
+      ctx.moveTo(prev.x, prev.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.strokeStyle = 'rgba(50,205,50,0.4)';
+      ctx.lineWidth = imgR * 2;
+      ctx.lineCap = 'round';
+      ctx.stroke();
     });
-    brushCanvas.addEventListener('mouseup', function () {
-      if (!brushDrawing) return;
-      brushDrawing = false;
-      brushFgCenters = null;
-      // Defer detection so the UI doesn't freeze during drawing
-      setTimeout(function () { renderContourPreview(); }, 10);
-    });
-    brushCanvas.addEventListener('mouseleave', function () {
+
+    document.addEventListener('mouseup', function () {
       if (!brushDrawing) return;
       brushDrawing = false;
       brushFgCenters = null;
@@ -413,12 +392,6 @@
       binary = dilate(binary, imgW, imgH, 2);
       binary = erode(binary, imgW, imgH, 3);
       binary = dilate(binary, imgW, imgH, 1);
-    } else {
-      var thresh = parseInt($('slider-threshold').value);
-      var blur = parseInt($('slider-blur').value);
-      var invert = $('toggle-invert').checked;
-      var processed = applyBlur(grayData, imgW, imgH, blur);
-      binary = thresholdBinary(processed, imgW, imgH, thresh, invert);
     }
 
     var rawContours = marchingSquares(binary, imgW, imgH);
