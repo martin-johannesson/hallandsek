@@ -1531,10 +1531,118 @@
   }
 
   // =====================
-  // DXF R12 generation
+  // Arc fitting: convert point sequences to arcs where possible
+  // =====================
+
+  // Remove collinear points (angle deviation < threshold in radians)
+  function removeCollinear(pts, threshold) {
+    if (pts.length <= 3) return pts;
+    if (!threshold) threshold = 0.02; // ~1 degree
+    var out = [];
+    var n = pts.length;
+    for (var i = 0; i < n; i++) {
+      var prev = pts[(i - 1 + n) % n];
+      var curr = pts[i];
+      var next = pts[(i + 1) % n];
+      var dx1 = curr.x - prev.x, dy1 = curr.y - prev.y;
+      var dx2 = next.x - curr.x, dy2 = next.y - curr.y;
+      var cross = Math.abs(dx1 * dy2 - dy1 * dx2);
+      var dot = dx1 * dx2 + dy1 * dy2;
+      var len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      if (len1 < 1e-9 || len2 < 1e-9) continue; // degenerate
+      var sinAngle = cross / (len1 * len2);
+      if (sinAngle > threshold || dot < 0) {
+        out.push(curr); // significant bend — keep
+      }
+      // else: nearly collinear — skip
+    }
+    return out.length >= 3 ? out : pts;
+  }
+
+  // Fit circle through 3 points, returns {cx, cy, r} or null
+  function circleFrom3(p1, p2, p3) {
+    var ax = p1.x, ay = p1.y, bx = p2.x, by = p2.y, cx = p3.x, cy = p3.y;
+    var d = 2 * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by));
+    if (Math.abs(d) < 1e-10) return null; // collinear
+    var ux = ((ax * ax + ay * ay) * (by - cy) + (bx * bx + by * by) * (cy - ay) + (cx * cx + cy * cy) * (ay - by)) / d;
+    var uy = ((ax * ax + ay * ay) * (cx - bx) + (bx * bx + by * by) * (ax - cx) + (cx * cx + cy * cy) * (bx - ax)) / d;
+    var dx = ax - ux, dy = ay - uy;
+    return { cx: ux, cy: uy, r: Math.sqrt(dx * dx + dy * dy) };
+  }
+
+  // Calculate bulge for arc from p1 to p2 through circle {cx, cy, r}
+  // Bulge = tan(included_angle / 4), sign indicates direction
+  function calcBulge(p1, p2, circle) {
+    var dx1 = p1.x - circle.cx, dy1 = p1.y - circle.cy;
+    var dx2 = p2.x - circle.cx, dy2 = p2.y - circle.cy;
+    // Signed angle from p1 to p2 around center
+    var angle = Math.atan2(dx1 * dy2 - dy1 * dx2, dx1 * dx2 + dy1 * dy2);
+    return Math.tan(angle / 4);
+  }
+
+  // Fit arcs to a closed polygon. Returns array of {x, y, bulge} vertices.
+  // tolerance = max deviation from arc in same units as points (pixels or mm)
+  function fitArcs(pts, tolerance) {
+    if (!tolerance) tolerance = 0.8; // pixels
+    var n = pts.length;
+    if (n <= 3) {
+      var out = [];
+      for (var i = 0; i < n; i++) out.push({ x: pts[i].x, y: pts[i].y, bulge: 0 });
+      return out;
+    }
+
+    var result = [];
+    var i = 0;
+    var maxR = 1e6; // ignore arcs with huge radius (nearly straight)
+    var maxSpan = Math.min(n - 1, Math.floor(n / 2)); // never span more than half the polygon
+
+    while (i < n) {
+      var bestSpan = 0;
+      var bestCircle = null;
+
+      // Extend arc window as far as possible (only forward, no wrap-around)
+      // Start at span=4: need enough intermediate points not on the defining circle
+      for (var span = 4; span <= maxSpan; span++) {
+        var endIdx = i + span;
+        if (endIdx >= n) break; // don't wrap around
+
+        var midIdx = i + Math.floor(span / 2);
+        var circ = circleFrom3(pts[i], pts[midIdx], pts[endIdx]);
+        if (!circ || circ.r > maxR) break;
+
+        // Check all intermediate points against the circle
+        var ok = true;
+        for (var k = i + 1; k < endIdx; k++) {
+          var dx = pts[k].x - circ.cx, dy = pts[k].y - circ.cy;
+          var dist = Math.abs(Math.sqrt(dx * dx + dy * dy) - circ.r);
+          if (dist > tolerance) { ok = false; break; }
+        }
+        if (!ok) break;
+
+        bestSpan = span;
+        bestCircle = circ;
+      }
+
+      if (bestSpan >= 4 && bestCircle) {
+        var bulge = calcBulge(pts[i], pts[i + bestSpan], bestCircle);
+        result.push({ x: pts[i].x, y: pts[i].y, bulge: bulge });
+        i += bestSpan; // advance to end of arc (it becomes next start)
+      } else {
+        result.push({ x: pts[i].x, y: pts[i].y, bulge: 0 });
+        i++;
+      }
+    }
+
+    return result;
+  }
+
+  // =====================
+  // DXF R12 generation (LWPOLYLINE with bulge for arcs)
   // =====================
   function generateDXF(selected, ppm) {
     var scale = ppm > 0 ? (1 / ppm) : 1;
+    var arcTol = ppm > 0 ? 0.3 : 0.8; // 0.3mm or 0.8px
     var lines = [];
 
     lines.push('0', 'SECTION', '2', 'HEADER');
@@ -1546,18 +1654,29 @@
       var c = selected[i];
       var pts = c.points.slice();
       // DXF Y-flip inverts winding: image CW → DXF CCW, image CCW → DXF CW
-      // Standard: outer = CCW in DXF (positive image area), hole = CW in DXF (negative image area)
       var a = contourArea(pts);
       if (!c.isHole && a < 0) pts.reverse();
       if (c.isHole && a > 0) pts.reverse();
-      lines.push('0', 'POLYLINE', '8', c.isHole ? 'HOLES' : '0', '66', '1', '70', '1');
-      for (var j = 0; j < pts.length; j++) {
-        lines.push('0', 'VERTEX', '8', c.isHole ? 'HOLES' : '0');
-        lines.push('10', (pts[j].x * scale).toFixed(4));
-        lines.push('20', (-pts[j].y * scale).toFixed(4));
-        lines.push('30', '0.0000');
+
+      // Clean up: remove collinear nodes, then fit arcs
+      pts = removeCollinear(pts);
+      var verts = fitArcs(pts, arcTol);
+
+      var layer = c.isHole ? 'HOLES' : '0';
+      // LWPOLYLINE: modern, compact, supports bulge per vertex
+      lines.push('0', 'LWPOLYLINE');
+      lines.push('8', layer);
+      lines.push('90', String(verts.length)); // vertex count
+      lines.push('70', '1'); // closed polyline
+
+      for (var j = 0; j < verts.length; j++) {
+        lines.push('10', (verts[j].x * scale).toFixed(4));
+        lines.push('20', (-verts[j].y * scale).toFixed(4));
+        if (Math.abs(verts[j].bulge) > 1e-6) {
+          // Y-flip inverts arc direction
+          lines.push('42', (-verts[j].bulge).toFixed(6));
+        }
       }
-      lines.push('0', 'SEQEND');
     }
 
     lines.push('0', 'ENDSEC', '0', 'EOF');
