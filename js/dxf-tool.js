@@ -257,8 +257,24 @@
       brushFgCenters = null;
       renderContourPreview();
     });
+    $('btn-brush-undo').addEventListener('click', function () {
+      if (brushStrokes.length === 0) return;
+      brushStrokes.pop();
+      // Rebuild mask from remaining strokes
+      brushMask = brushStrokes.length > 0 ? new Uint8Array(imgW * imgH) : null;
+      for (var si = 0; si < brushStrokes.length; si++) {
+        var s = brushStrokes[si];
+        var r = s[0].r;
+        brushCircle(brushMask, imgW, imgH, s[0].x, s[0].y, r);
+        for (var pi = 1; pi < s.length; pi++) {
+          brushLine(brushMask, imgW, imgH, s[pi - 1].x, s[pi - 1].y, s[pi].x, s[pi].y, r);
+        }
+      }
+      brushFgCenters = null;
+      renderContourPreview();
+    });
 
-    // Brush canvas drawing — mousemove/mouseup on document to prevent browser stealing events
+    // Brush canvas drawing — pointer events with setPointerCapture for reliable drag
     var brushCanvas = $('canvas-contour');
     brushCanvas.setAttribute('draggable', 'false');
     brushCanvas.style.touchAction = 'none';
@@ -277,25 +293,24 @@
       return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
     }
 
-    brushCanvas.addEventListener('mousedown', function (e) {
+    brushCanvas.addEventListener('pointerdown', function (e) {
       if (detectMode !== 'brush' || !imgW) return;
       e.preventDefault();
-      e.stopPropagation();
+      this.setPointerCapture(e.pointerId);
       brushDrawing = true;
       var p = canvasCoords(e);
       var imgR = brushImgRadius();
       brushStrokes.push([{ x: p.x, y: p.y, r: imgR }]);
       if (!brushMask) brushMask = new Uint8Array(imgW * imgH);
       brushCircle(brushMask, imgW, imgH, p.x, p.y, imgR);
-      var ctx = brushCanvas.getContext('2d');
+      var ctx = this.getContext('2d');
       ctx.beginPath();
       ctx.arc(p.x, p.y, imgR, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(50,205,50,0.4)';
       ctx.fill();
     });
 
-    // Listen on document so browser can't steal events during drag
-    document.addEventListener('mousemove', function (e) {
+    brushCanvas.addEventListener('pointermove', function (e) {
       if (!brushDrawing) return;
       e.preventDefault();
       var p = canvasCoords(e);
@@ -304,7 +319,7 @@
       stroke.push({ x: p.x, y: p.y });
       var imgR = stroke[0].r;
       brushLine(brushMask, imgW, imgH, prev.x, prev.y, p.x, p.y, imgR);
-      var ctx = brushCanvas.getContext('2d');
+      var ctx = this.getContext('2d');
       ctx.beginPath();
       ctx.moveTo(prev.x, prev.y);
       ctx.lineTo(p.x, p.y);
@@ -314,8 +329,9 @@
       ctx.stroke();
     });
 
-    document.addEventListener('mouseup', function () {
+    brushCanvas.addEventListener('pointerup', function (e) {
       if (!brushDrawing) return;
+      this.releasePointerCapture(e.pointerId);
       brushDrawing = false;
       brushFgCenters = null;
       setTimeout(function () { renderContourPreview(); }, 10);
@@ -385,7 +401,35 @@
           fgSamples = bsub;
         }
         var fgK = Math.min(5, Math.max(2, Math.ceil(fgSamples.length / 200)));
-        brushFgCenters = kMeansClusters(fgSamples, fgK, 15);
+        var rawFgCenters = kMeansClusters(fgSamples, fgK, 15);
+        // Filter out fg clusters that look like background (misclick protection)
+        brushFgCenters = [];
+        for (var fi = 0; fi < rawFgCenters.length; fi++) {
+          var fc = rawFgCenters[fi];
+          var minBgDist = Infinity;
+          for (var bci = 0; bci < brushBgCenters.length; bci++) {
+            var dr = fc[0] - brushBgCenters[bci][0], dg = fc[1] - brushBgCenters[bci][1], db = fc[2] - brushBgCenters[bci][2];
+            var d = Math.sqrt(dr * dr + dg * dg + db * db);
+            if (d < minBgDist) minBgDist = d;
+          }
+          // Keep fg cluster only if it's sufficiently different from all bg clusters
+          if (minBgDist > 25) brushFgCenters.push(fc);
+        }
+        // If all were filtered, keep the one farthest from bg
+        if (brushFgCenters.length === 0) {
+          var bestDist = -1, bestCenter = rawFgCenters[0];
+          for (var fi2 = 0; fi2 < rawFgCenters.length; fi2++) {
+            var fc2 = rawFgCenters[fi2];
+            var mbd = Infinity;
+            for (var bci2 = 0; bci2 < brushBgCenters.length; bci2++) {
+              var dr2 = fc2[0] - brushBgCenters[bci2][0], dg2 = fc2[1] - brushBgCenters[bci2][1], db2 = fc2[2] - brushBgCenters[bci2][2];
+              var d2 = Math.sqrt(dr2 * dr2 + dg2 * dg2 + db2 * db2);
+              if (d2 < mbd) mbd = d2;
+            }
+            if (mbd > bestDist) { bestDist = mbd; bestCenter = fc2; }
+          }
+          brushFgCenters = [bestCenter];
+        }
       }
       binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, brushBgCenters, brushFgCenters);
       // Morphological close (fill gaps) then open (remove noise)
