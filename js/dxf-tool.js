@@ -442,6 +442,9 @@
       binary = detectForeground(rgbaData, imgW, imgH, tolerance);
     }
 
+    // Smooth binary mask with box blur + re-threshold to reduce jagged edges
+    binary = smoothBinaryMask(binary, imgW, imgH, 2);
+
     var rawContours = marchingSquares(binary, imgW, imgH);
     var stitched = stitchSegments(rawContours);
 
@@ -1133,6 +1136,54 @@
   // =====================
   // Image processing
   // =====================
+  // Smooth a binary mask: box blur (radius r, 2 passes) then re-threshold at 0.5
+  // This rounds off jagged pixel-staircase edges without changing the overall shape
+  function smoothBinaryMask(mask, w, h, r) {
+    if (r <= 0) return mask;
+    // Convert binary to float for blur
+    var src = new Float32Array(w * h);
+    for (var i = 0; i < mask.length; i++) src[i] = mask[i] ? 1.0 : 0.0;
+    var dst = new Float32Array(w * h);
+    // Two passes of box blur (approximates gaussian)
+    for (var pass = 0; pass < 2; pass++) {
+      // Horizontal pass
+      for (var y = 0; y < h; y++) {
+        var sum = 0;
+        var count = 0;
+        // Init window
+        for (var x = 0; x <= r && x < w; x++) { sum += src[y * w + x]; count++; }
+        for (var x = 0; x < w; x++) {
+          dst[y * w + x] = sum / count;
+          // Expand right
+          var right = x + r + 1;
+          if (right < w) { sum += src[y * w + right]; count++; }
+          // Shrink left
+          var left = x - r;
+          if (left >= 0) { sum -= src[y * w + left]; count--; }
+        }
+      }
+      // Vertical pass
+      for (var x = 0; x < w; x++) {
+        var sum = 0;
+        var count = 0;
+        for (var y = 0; y <= r && y < h; y++) { sum += dst[y * w + x]; count++; }
+        for (var y = 0; y < h; y++) {
+          src[y * w + x] = sum / count;
+          var bottom = y + r + 1;
+          if (bottom < h) { sum += dst[bottom * w + x]; count++; }
+          var top = y - r;
+          if (top >= 0) { sum -= dst[top * w + x]; count--; }
+        }
+      }
+    }
+    // Re-threshold
+    var out = new Uint8Array(w * h);
+    for (var i = 0; i < out.length; i++) {
+      if (src[i] > 0.5) out[i] = 1;
+    }
+    return out;
+  }
+
   function applyBlur(data, w, h, passes) {
     if (passes <= 0) return data;
     var src = new Uint8Array(data);
