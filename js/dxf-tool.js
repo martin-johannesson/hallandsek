@@ -443,7 +443,7 @@
     }
 
     // Smooth binary mask with box blur + re-threshold to reduce jagged edges
-    binary = smoothBinaryMask(binary, imgW, imgH, 2);
+    binary = smoothBinaryMask(binary, imgW, imgH, 1);
 
     var rawContours = marchingSquares(binary, imgW, imgH);
     var stitched = stitchSegments(rawContours);
@@ -521,42 +521,26 @@
   // Flood fill from borders (object detection)
   // =====================
   function detectForeground(rgba, w, h, tolerance) {
-    // Classify pixels: 1 = foreground (object), 0 = background
-    // Uses median color of border pixels as background reference
-    // Each pixel classified independently — no connectivity required
+    // Classify pixels using k-means background clusters (handles mixed backgrounds)
+    // Sample 5% border region, cluster into up to 5 colors, classify by min distance
 
-    // Collect border pixel colors
-    var borderN = 2 * w + 2 * (h - 2);
-    var rArr = new Uint8Array(borderN);
-    var gArr = new Uint8Array(borderN);
-    var bArr = new Uint8Array(borderN);
-    var bi = 0;
+    var bgSamples = sampleBorderPixels(rgba, w, h, 5);
+    var nClusters = Math.min(5, Math.max(2, Math.ceil(bgSamples.length / 500)));
+    var bgCenters = kMeansClusters(bgSamples, nClusters, 15);
 
-    for (var x = 0; x < w; x++) {
-      var o1 = x * 4;
-      rArr[bi] = rgba[o1]; gArr[bi] = rgba[o1 + 1]; bArr[bi] = rgba[o1 + 2]; bi++;
-      var o2 = ((h - 1) * w + x) * 4;
-      rArr[bi] = rgba[o2]; gArr[bi] = rgba[o2 + 1]; bArr[bi] = rgba[o2 + 2]; bi++;
-    }
-    for (var y = 1; y < h - 1; y++) {
-      var o3 = (y * w) * 4;
-      rArr[bi] = rgba[o3]; gArr[bi] = rgba[o3 + 1]; bArr[bi] = rgba[o3 + 2]; bi++;
-      var o4 = (y * w + w - 1) * 4;
-      rArr[bi] = rgba[o4]; gArr[bi] = rgba[o4 + 1]; bArr[bi] = rgba[o4 + 2]; bi++;
-    }
-
-    // Median per channel (robust to outliers if object touches edge)
-    rArr.sort(); gArr.sort(); bArr.sort();
-    var mid = borderN >> 1;
-    var bgR = rArr[mid], bgG = gArr[mid], bgB = bArr[mid];
-
-    // Classify every pixel: color distance to median background > tolerance → foreground
     var fg = new Uint8Array(w * h);
     var tolSq = tolerance * tolerance;
     for (var i = 0; i < fg.length; i++) {
       var off = i * 4;
-      var dr = bgR - rgba[off], dg = bgG - rgba[off + 1], db = bgB - rgba[off + 2];
-      if (dr * dr + dg * dg + db * db > tolSq) fg[i] = 1;
+      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
+      // Distance to nearest background cluster
+      var minDist = Infinity;
+      for (var c = 0; c < bgCenters.length; c++) {
+        var dr = r - bgCenters[c][0], dg = g - bgCenters[c][1], db = b - bgCenters[c][2];
+        var d = dr * dr + dg * dg + db * db;
+        if (d < minDist) minDist = d;
+      }
+      if (minDist > tolSq) fg[i] = 1;
     }
 
     return fg;
