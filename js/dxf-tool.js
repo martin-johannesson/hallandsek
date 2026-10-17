@@ -518,31 +518,60 @@
   }
 
   // =====================
-  // Flood fill from borders (object detection)
+  // Otsu thresholding (automatic, deterministic)
+  // =====================
+  function otsuThreshold(gray, n) {
+    var hist = new Int32Array(256);
+    for (var i = 0; i < n; i++) hist[gray[i]]++;
+    var sum = 0;
+    for (var i = 0; i < 256; i++) sum += i * hist[i];
+    var sumB = 0, wB = 0, maxVar = 0, thresh = 128;
+    for (var t = 0; t < 256; t++) {
+      wB += hist[t];
+      if (wB === 0) continue;
+      var wF = n - wB;
+      if (wF === 0) break;
+      sumB += t * hist[t];
+      var diff = sumB / wB - (sum - sumB) / wF;
+      var v = wB * wF * diff * diff;
+      if (v > maxVar) { maxVar = v; thresh = t; }
+    }
+    return thresh;
+  }
+
+  // =====================
+  // Foreground detection (Otsu + border brightness)
   // =====================
   function detectForeground(rgba, w, h, tolerance) {
-    // Classify pixels using k-means background clusters (handles mixed backgrounds)
-    // Sample 5% border region, cluster into up to 5 colors, classify by min distance
-
-    var bgSamples = sampleBorderPixels(rgba, w, h, 3);
-    var nClusters = Math.min(4, Math.max(2, Math.ceil(bgSamples.length / 500)));
-    var bgCenters = kMeansClusters(bgSamples, nClusters, 15);
-
-    var fg = new Uint8Array(w * h);
-    var tolSq = tolerance * tolerance;
-    for (var i = 0; i < fg.length; i++) {
+    // Otsu threshold on grayscale — fully automatic, deterministic
+    var n = w * h;
+    var gray = new Uint8Array(n);
+    for (var i = 0; i < n; i++) {
       var off = i * 4;
-      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
-      // Distance to nearest background cluster
-      var minDist = Infinity;
-      for (var c = 0; c < bgCenters.length; c++) {
-        var dr = r - bgCenters[c][0], dg = g - bgCenters[c][1], db = b - bgCenters[c][2];
-        var d = dr * dr + dg * dg + db * db;
-        if (d < minDist) minDist = d;
-      }
-      if (minDist > tolSq) fg[i] = 1;
+      gray[i] = Math.round(0.299 * rgba[off] + 0.587 * rgba[off + 1] + 0.114 * rgba[off + 2]);
     }
 
+    var otsu = otsuThreshold(gray, n);
+    // tolerance slider shifts threshold: 0=very sensitive, 40=neutral, 80+=aggressive
+    var thresh = otsu + (tolerance - 40);
+    thresh = Math.max(1, Math.min(254, thresh));
+
+    // Determine if background is light or dark from 1px border
+    var borderSum = 0, borderCount = 0;
+    for (var x = 0; x < w; x++) {
+      borderSum += gray[x]; borderSum += gray[(h - 1) * w + x]; borderCount += 2;
+    }
+    for (var y = 1; y < h - 1; y++) {
+      borderSum += gray[y * w]; borderSum += gray[y * w + w - 1]; borderCount += 2;
+    }
+    var bgIsLight = (borderSum / borderCount) > thresh;
+
+    var fg = new Uint8Array(n);
+    if (bgIsLight) {
+      for (var i = 0; i < n; i++) { if (gray[i] < thresh) fg[i] = 1; }
+    } else {
+      for (var i = 0; i < n; i++) { if (gray[i] > thresh) fg[i] = 1; }
+    }
     return fg;
   }
 
