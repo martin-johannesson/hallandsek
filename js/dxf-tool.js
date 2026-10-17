@@ -524,8 +524,8 @@
     // Classify pixels using k-means background clusters (handles mixed backgrounds)
     // Sample 5% border region, cluster into up to 5 colors, classify by min distance
 
-    var bgSamples = sampleBorderPixels(rgba, w, h, 5);
-    var nClusters = Math.min(5, Math.max(2, Math.ceil(bgSamples.length / 500)));
+    var bgSamples = sampleBorderPixels(rgba, w, h, 3);
+    var nClusters = Math.min(4, Math.max(2, Math.ceil(bgSamples.length / 500)));
     var bgCenters = kMeansClusters(bgSamples, nClusters, 15);
 
     var fg = new Uint8Array(w * h);
@@ -580,14 +580,13 @@
     var n = samples.length;
     if (n === 0) return [[128, 128, 128]];
 
-    // k-means++ initialization
+    // Deterministic initialization: first = median sample, then farthest-point
     var centers = [];
-    var idx = Math.floor(Math.random() * n);
-    centers.push([samples[idx][0], samples[idx][1], samples[idx][2]]);
+    var midIdx = Math.floor(n / 2);
+    centers.push([samples[midIdx][0], samples[midIdx][1], samples[midIdx][2]]);
 
     for (var c = 1; c < k; c++) {
-      var dists = new Float32Array(n);
-      var totalDist = 0;
+      var bestDist = -1, chosen = 0;
       for (var i = 0; i < n; i++) {
         var minD = Infinity;
         for (var j = 0; j < centers.length; j++) {
@@ -597,16 +596,7 @@
           var d = dr * dr + dg * dg + db * db;
           if (d < minD) minD = d;
         }
-        dists[i] = minD;
-        totalDist += minD;
-      }
-      // Weighted random selection
-      var threshold = Math.random() * totalDist;
-      var cumulative = 0;
-      var chosen = 0;
-      for (var i2 = 0; i2 < n; i2++) {
-        cumulative += dists[i2];
-        if (cumulative >= threshold) { chosen = i2; break; }
+        if (minD > bestDist) { bestDist = minD; chosen = i; }
       }
       centers.push([samples[chosen][0], samples[chosen][1], samples[chosen][2]]);
     }
