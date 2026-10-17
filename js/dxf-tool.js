@@ -503,15 +503,15 @@
           ctx.strokeStyle = '#d4722a';
           ctx.fillStyle = 'rgba(212,114,42,0.15)';
         }
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.fill();
       } else {
         ctx.strokeStyle = c.isHole ? 'rgba(100,150,220,0.6)' : 'rgba(200,200,200,0.6)';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2;
       }
       if (highlightIdx === i) {
         ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
       }
       ctx.stroke();
     }
