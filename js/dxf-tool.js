@@ -132,12 +132,17 @@
   }
 
   function saveToServer(data) {
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', '/api/save-test', true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.send(JSON.stringify(data));
-    } catch (e) { /* silent */ }
+    // Try local dev server first, then relative path as fallback
+    var urls = ['http://localhost:3456/api/save-test', '/api/save-test'];
+    for (var i = 0; i < urls.length; i++) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', urls[i], true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify(data));
+        return;
+      } catch (e) { /* try next */ }
+    }
   }
 
   function collectDebugInfo() {
