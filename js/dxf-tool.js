@@ -540,10 +540,10 @@
   }
 
   // =====================
-  // Foreground detection (Otsu + border brightness)
+  // Foreground detection (Otsu + flood fill from borders)
   // =====================
   function detectForeground(rgba, w, h, tolerance) {
-    // Otsu threshold on grayscale — fully automatic, deterministic
+    // 1. Grayscale + Otsu threshold
     var n = w * h;
     var gray = new Uint8Array(n);
     for (var i = 0; i < n; i++) {
@@ -552,7 +552,6 @@
     }
 
     var otsu = otsuThreshold(gray, n);
-    // tolerance slider shifts threshold: 0=very sensitive, 40=neutral, 80+=aggressive
     var thresh = otsu + (tolerance - 40);
     thresh = Math.max(1, Math.min(254, thresh));
 
@@ -566,11 +565,56 @@
     }
     var bgIsLight = (borderSum / borderCount) > thresh;
 
-    var fg = new Uint8Array(n);
+    // 2. Initial binary mask
+    var wall = new Uint8Array(n); // 1 = potential object boundary
     if (bgIsLight) {
-      for (var i = 0; i < n; i++) { if (gray[i] < thresh) fg[i] = 1; }
+      for (var i = 0; i < n; i++) { if (gray[i] < thresh) wall[i] = 1; }
     } else {
-      for (var i = 0; i < n; i++) { if (gray[i] > thresh) fg[i] = 1; }
+      for (var i = 0; i < n; i++) { if (gray[i] > thresh) wall[i] = 1; }
+    }
+
+    // 3. Morphological close on walls to seal small edge gaps
+    wall = dilate(wall, w, h, 2);
+    wall = erode(wall, w, h, 2);
+
+    // 4. Flood fill background from all border pixels
+    // Everything NOT reached by flood fill = foreground (the board)
+    var bg = new Uint8Array(n); // 1 = confirmed background
+    var stack = [];
+    // Seed: all border pixels that are not walls
+    for (var x = 0; x < w; x++) {
+      if (!wall[x]) { bg[x] = 1; stack.push(x); }
+      var bi = (h - 1) * w + x;
+      if (!wall[bi]) { bg[bi] = 1; stack.push(bi); }
+    }
+    for (var y = 1; y < h - 1; y++) {
+      var li = y * w;
+      if (!wall[li]) { bg[li] = 1; stack.push(li); }
+      var ri = y * w + w - 1;
+      if (!wall[ri]) { bg[ri] = 1; stack.push(ri); }
+    }
+    // BFS flood fill
+    while (stack.length > 0) {
+      var idx = stack.pop();
+      var px = idx % w, py = (idx - px) / w;
+      var neighbors = [];
+      if (px > 0) neighbors.push(idx - 1);
+      if (px < w - 1) neighbors.push(idx + 1);
+      if (py > 0) neighbors.push(idx - w);
+      if (py < h - 1) neighbors.push(idx + w);
+      for (var ni = 0; ni < neighbors.length; ni++) {
+        var nb = neighbors[ni];
+        if (!bg[nb] && !wall[nb]) {
+          bg[nb] = 1;
+          stack.push(nb);
+        }
+      }
+    }
+
+    // 5. Foreground = not background
+    var fg = new Uint8Array(n);
+    for (var i = 0; i < n; i++) {
+      if (!bg[i]) fg[i] = 1;
     }
     return fg;
   }
