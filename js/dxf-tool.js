@@ -13,14 +13,10 @@
   var calPoints = [];        // [{x,y}] max 2
   var pixPerMm = 0;          // 0 = uncalibrated
   var MAX_DIM = 1200;
-  var detectMode = 'object'; // 'object' or 'brush'
+  var detectMode = 'object';
   var gradientMap = null;       // Float32Array (w * h), cached Sobel gradient
   var cachedCenters = null;     // k-means centroids array
   var cachedBorderPercent = 0;  // last border % for cache invalidation
-  var brushMask = null;          // Uint8Array (w*h), 1 = brushed pixel
-  var brushStrokes = [];         // [[{x,y},...]] for overlay rendering
-  var brushFgCenters = null;     // k-means centroids from brushed pixels
-  var brushDrawing = false;      // currently drawing a stroke
   var originalDataUrl = null;    // original image data URL for debug saving
 
   // --- DOM refs ---
@@ -50,7 +46,7 @@
     updateStepDots();
     if (n === 2) {
       renderContourPreview();
-      $('canvas-contour').style.cursor = detectMode === 'brush' ? 'crosshair' : '';
+      $('canvas-contour').style.cursor = '';
     }
     if (n === 3) renderSelectStep();
     if (n === 4) renderCalStep();
@@ -85,10 +81,6 @@
       gradientMap = null;
       cachedCenters = null;
       cachedBorderPercent = 0;
-      brushMask = null;
-      brushStrokes = [];
-      brushFgCenters = null;
-      brushDrawing = false;
       originalDataUrl = null;
       $('cal-status').textContent = '';
       $('cal-mm').value = '';
@@ -208,36 +200,13 @@
   // Step 2: Detect contours
   // =====================
   function setupStep2() {
-    var modeHints = {
-      object: 'Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.',
-      brush: 'Måla på objektet med penseln. Algoritmen lär sig färgerna och hittar hela objektet automatiskt.'
-    };
-
-    // Mode selector
-    var modeButtons = document.querySelectorAll('#mode-selector .mode-btn');
-    modeButtons.forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        modeButtons.forEach(function (b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        detectMode = btn.dataset.mode;
-        $('object-controls').style.display = detectMode === 'object' ? '' : 'none';
-        $('brush-controls').style.display = detectMode === 'brush' ? '' : 'none';
-        var cc = $('canvas-contour');
-        cc.style.cursor = detectMode === 'brush' ? 'crosshair' : '';
-        $('mode-hint').textContent = modeHints[detectMode] || '';
-        renderContourPreview();
-      });
-    });
-
-    // Object mode sliders
+    // Sliders
     ['tolerance', 'grow'].forEach(function (name) {
       $('slider-' + name).addEventListener('input', function () {
         $('val-' + name).textContent = this.value;
         renderContourPreview();
       });
     });
-
-    // Shared sliders
     ['area', 'simplify'].forEach(function (name) {
       $('slider-' + name).addEventListener('input', function () {
         $('val-' + name).textContent = this.value;
@@ -246,96 +215,6 @@
     });
 
     $('toggle-smooth').addEventListener('change', function () { renderContourPreview(); });
-
-    // Brush mode controls
-    $('slider-brush-width').addEventListener('input', function () {
-      $('val-brush-width').textContent = this.value;
-    });
-    $('btn-brush-clear').addEventListener('click', function () {
-      brushMask = null;
-      brushStrokes = [];
-      brushFgCenters = null;
-      renderContourPreview();
-    });
-    $('btn-brush-undo').addEventListener('click', function () {
-      if (brushStrokes.length === 0) return;
-      brushStrokes.pop();
-      // Rebuild mask from remaining strokes
-      brushMask = brushStrokes.length > 0 ? new Uint8Array(imgW * imgH) : null;
-      for (var si = 0; si < brushStrokes.length; si++) {
-        var s = brushStrokes[si];
-        var r = s[0].r;
-        brushCircle(brushMask, imgW, imgH, s[0].x, s[0].y, r);
-        for (var pi = 1; pi < s.length; pi++) {
-          brushLine(brushMask, imgW, imgH, s[pi - 1].x, s[pi - 1].y, s[pi].x, s[pi].y, r);
-        }
-      }
-      brushFgCenters = null;
-      renderContourPreview();
-    });
-
-    // Brush canvas drawing — pointer events with setPointerCapture for reliable drag
-    var brushCanvas = $('canvas-contour');
-    brushCanvas.setAttribute('draggable', 'false');
-    brushCanvas.style.touchAction = 'none';
-    brushCanvas.style.userSelect = 'none';
-
-    function brushImgRadius() {
-      var r = brushCanvas.getBoundingClientRect();
-      var sx = imgW / r.width;
-      var screenPx = parseInt($('slider-brush-width').value);
-      return Math.max(1, screenPx * sx / 2);
-    }
-
-    function canvasCoords(e) {
-      var r = brushCanvas.getBoundingClientRect();
-      var sx = imgW / r.width, sy = imgH / r.height;
-      return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy };
-    }
-
-    brushCanvas.addEventListener('pointerdown', function (e) {
-      if (detectMode !== 'brush' || !imgW) return;
-      e.preventDefault();
-      this.setPointerCapture(e.pointerId);
-      brushDrawing = true;
-      var p = canvasCoords(e);
-      var imgR = brushImgRadius();
-      brushStrokes.push([{ x: p.x, y: p.y, r: imgR }]);
-      if (!brushMask) brushMask = new Uint8Array(imgW * imgH);
-      brushCircle(brushMask, imgW, imgH, p.x, p.y, imgR);
-      var ctx = this.getContext('2d');
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, imgR, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(50,205,50,0.4)';
-      ctx.fill();
-    });
-
-    brushCanvas.addEventListener('pointermove', function (e) {
-      if (!brushDrawing) return;
-      e.preventDefault();
-      var p = canvasCoords(e);
-      var stroke = brushStrokes[brushStrokes.length - 1];
-      var prev = stroke[stroke.length - 1];
-      stroke.push({ x: p.x, y: p.y });
-      var imgR = stroke[0].r;
-      brushLine(brushMask, imgW, imgH, prev.x, prev.y, p.x, p.y, imgR);
-      var ctx = this.getContext('2d');
-      ctx.beginPath();
-      ctx.moveTo(prev.x, prev.y);
-      ctx.lineTo(p.x, p.y);
-      ctx.strokeStyle = 'rgba(50,205,50,0.4)';
-      ctx.lineWidth = imgR * 2;
-      ctx.lineCap = 'round';
-      ctx.stroke();
-    });
-
-    brushCanvas.addEventListener('pointerup', function (e) {
-      if (!brushDrawing) return;
-      this.releasePointerCapture(e.pointerId);
-      brushDrawing = false;
-      brushFgCenters = null;
-      setTimeout(function () { renderContourPreview(); }, 10);
-    });
 
     // Save test image (snapshot + debug info)
     $('btn-save-test').addEventListener('click', function () {
@@ -360,86 +239,13 @@
     var smooth = $('toggle-smooth').checked;
     var binary;
 
-    if (detectMode === 'object') {
-      var tolerance = parseInt($('slider-tolerance').value);
-      var grow = parseInt($('slider-grow').value);
-      binary = detectForeground(rgbaData, imgW, imgH, tolerance);
-      // Morphological close (dilate then erode) to fill small gaps
-      if (grow > 0) {
-        binary = dilate(binary, imgW, imgH, grow);
-        binary = erode(binary, imgW, imgH, grow);
-      }
-    } else if (detectMode === 'brush') {
-      if (brushStrokes.length === 0 || !brushMask) {
-        contours = [];
-        drawContourOverlay('canvas-contour', contours, null);
-        drawBrushStrokes('canvas-contour');
-        return;
-      }
-      // Always compute fresh bg centers for brush mode (border 8% for better coverage)
-      var bSamples = sampleBorderPixels(rgbaData, imgW, imgH, 8);
-      var brushBgCenters = kMeansClusters(bSamples, 5, 15);
-      // Fg centers from brushed pixels
-      if (!brushFgCenters) {
-        var fgSamples = [];
-        for (var bi = 0; bi < brushMask.length; bi++) {
-          if (brushMask[bi]) {
-            var boff = bi * 4;
-            fgSamples.push([rgbaData[boff], rgbaData[boff + 1], rgbaData[boff + 2]]);
-          }
-        }
-        if (fgSamples.length === 0) {
-          contours = [];
-          drawContourOverlay('canvas-contour', contours, null);
-          drawBrushStrokes('canvas-contour');
-          return;
-        }
-        if (fgSamples.length > 8000) {
-          var bstep = Math.floor(fgSamples.length / 8000);
-          var bsub = [];
-          for (var bsi = 0; bsi < fgSamples.length; bsi += bstep) bsub.push(fgSamples[bsi]);
-          fgSamples = bsub;
-        }
-        var fgK = Math.min(5, Math.max(2, Math.ceil(fgSamples.length / 200)));
-        var rawFgCenters = kMeansClusters(fgSamples, fgK, 15);
-        // Filter out fg clusters that look like background (misclick protection)
-        brushFgCenters = [];
-        for (var fi = 0; fi < rawFgCenters.length; fi++) {
-          var fc = rawFgCenters[fi];
-          var minBgDist = Infinity;
-          for (var bci = 0; bci < brushBgCenters.length; bci++) {
-            var dr = fc[0] - brushBgCenters[bci][0], dg = fc[1] - brushBgCenters[bci][1], db = fc[2] - brushBgCenters[bci][2];
-            var d = Math.sqrt(dr * dr + dg * dg + db * db);
-            if (d < minBgDist) minBgDist = d;
-          }
-          // Keep fg cluster only if it's sufficiently different from all bg clusters
-          if (minBgDist > 25) brushFgCenters.push(fc);
-        }
-        // If all were filtered, keep the one farthest from bg
-        if (brushFgCenters.length === 0) {
-          var bestDist = -1, bestCenter = rawFgCenters[0];
-          for (var fi2 = 0; fi2 < rawFgCenters.length; fi2++) {
-            var fc2 = rawFgCenters[fi2];
-            var mbd = Infinity;
-            for (var bci2 = 0; bci2 < brushBgCenters.length; bci2++) {
-              var dr2 = fc2[0] - brushBgCenters[bci2][0], dg2 = fc2[1] - brushBgCenters[bci2][1], db2 = fc2[2] - brushBgCenters[bci2][2];
-              var d2 = Math.sqrt(dr2 * dr2 + dg2 * dg2 + db2 * db2);
-              if (d2 < mbd) mbd = d2;
-            }
-            if (mbd > bestDist) { bestDist = mbd; bestCenter = fc2; }
-          }
-          brushFgCenters = [bestCenter];
-        }
-      }
-      binary = detectForegroundBrush(rgbaData, imgW, imgH, brushMask, brushBgCenters, brushFgCenters);
-      // Morphological close (fill gaps) then open (remove noise)
-      binary = dilate(binary, imgW, imgH, 2);
-      binary = erode(binary, imgW, imgH, 3);
-      binary = dilate(binary, imgW, imgH, 1);
-    } else {
-      // Fallback: treat as object mode
-      var tolerance = parseInt($('slider-tolerance').value);
-      binary = detectForeground(rgbaData, imgW, imgH, tolerance);
+    var tolerance = parseInt($('slider-tolerance').value);
+    var grow = parseInt($('slider-grow').value);
+    binary = detectForeground(rgbaData, imgW, imgH, tolerance);
+    // Extra morphological close from grow slider
+    if (grow > 0) {
+      binary = dilate(binary, imgW, imgH, grow);
+      binary = erode(binary, imgW, imgH, grow);
     }
 
     // Smooth binary mask with box blur + re-threshold to reduce jagged edges
@@ -473,7 +279,6 @@
     }
 
     drawContourOverlay('canvas-contour', contours, null);
-    if (detectMode === 'brush') drawBrushStrokes('canvas-contour');
   }
 
   function drawContourOverlay(canvasId, cList, highlightIdx) {
@@ -644,118 +449,6 @@
       for (var j = 0; j < grad.length; j++) grad[j] *= scale;
     }
     return grad;
-  }
-
-  // =====================
-  // K-means clustering (k-means++ init)
-  // =====================
-  function kMeansClusters(samples, k, maxIter) {
-    var n = samples.length;
-    if (n === 0) return [[128, 128, 128]];
-
-    // Deterministic initialization: first = median sample, then farthest-point
-    var centers = [];
-    var midIdx = Math.floor(n / 2);
-    centers.push([samples[midIdx][0], samples[midIdx][1], samples[midIdx][2]]);
-
-    for (var c = 1; c < k; c++) {
-      var bestDist = -1, chosen = 0;
-      for (var i = 0; i < n; i++) {
-        var minD = Infinity;
-        for (var j = 0; j < centers.length; j++) {
-          var dr = samples[i][0] - centers[j][0];
-          var dg = samples[i][1] - centers[j][1];
-          var db = samples[i][2] - centers[j][2];
-          var d = dr * dr + dg * dg + db * db;
-          if (d < minD) minD = d;
-        }
-        if (minD > bestDist) { bestDist = minD; chosen = i; }
-      }
-      centers.push([samples[chosen][0], samples[chosen][1], samples[chosen][2]]);
-    }
-
-    // Lloyd's iterations
-    var assignments = new Int32Array(n);
-    for (var iter = 0; iter < maxIter; iter++) {
-      // Assign each sample to nearest center
-      var changed = false;
-      for (var i3 = 0; i3 < n; i3++) {
-        var bestDist = Infinity, bestC = 0;
-        for (var ci = 0; ci < centers.length; ci++) {
-          var dr2 = samples[i3][0] - centers[ci][0];
-          var dg2 = samples[i3][1] - centers[ci][1];
-          var db2 = samples[i3][2] - centers[ci][2];
-          var dist = dr2 * dr2 + dg2 * dg2 + db2 * db2;
-          if (dist < bestDist) { bestDist = dist; bestC = ci; }
-        }
-        if (assignments[i3] !== bestC) { assignments[i3] = bestC; changed = true; }
-      }
-      if (!changed) break;
-
-      // Recompute centers
-      var sums = [];
-      var counts = new Int32Array(k);
-      for (var ci2 = 0; ci2 < k; ci2++) sums.push([0, 0, 0]);
-      for (var i4 = 0; i4 < n; i4++) {
-        var a = assignments[i4];
-        sums[a][0] += samples[i4][0];
-        sums[a][1] += samples[i4][1];
-        sums[a][2] += samples[i4][2];
-        counts[a]++;
-      }
-      for (var ci3 = 0; ci3 < k; ci3++) {
-        if (counts[ci3] > 0) {
-          centers[ci3] = [sums[ci3][0] / counts[ci3], sums[ci3][1] / counts[ci3], sums[ci3][2] / counts[ci3]];
-        }
-      }
-    }
-    return centers;
-  }
-
-  // =====================
-  // Sample border pixels for k-means
-  // =====================
-  function sampleBorderPixels(rgba, w, h, borderPercent) {
-    var bx = Math.max(1, Math.round(w * borderPercent / 100));
-    var by = Math.max(1, Math.round(h * borderPercent / 100));
-    var samples = [];
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        if (x < bx || x >= w - bx || y < by || y >= h - by) {
-          var off = (y * w + x) * 4;
-          samples.push([rgba[off], rgba[off + 1], rgba[off + 2]]);
-        }
-      }
-    }
-    // Subsample if too many (cap at 5000 for speed)
-    if (samples.length > 5000) {
-      var step = Math.floor(samples.length / 5000);
-      var sub = [];
-      for (var i = 0; i < samples.length; i += step) sub.push(samples[i]);
-      return sub;
-    }
-    return samples;
-  }
-
-  // =====================
-  // Advanced foreground detection (multi-cluster)
-  // =====================
-  function detectForegroundAdvanced(rgba, w, h, tolerance, centers) {
-    var fg = new Uint8Array(w * h);
-    var tolSq = tolerance * tolerance;
-    for (var i = 0; i < fg.length; i++) {
-      var off = i * 4;
-      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
-      // Distance to nearest cluster center
-      var minDist = Infinity;
-      for (var c = 0; c < centers.length; c++) {
-        var dr = r - centers[c][0], dg = g - centers[c][1], db = b - centers[c][2];
-        var d = dr * dr + dg * dg + db * db;
-        if (d < minDist) minDist = d;
-      }
-      if (minDist > tolSq) fg[i] = 1;
-    }
-    return fg;
   }
 
   // =====================
@@ -1493,88 +1186,6 @@
       }
     }
     return inside;
-  }
-
-  // =====================
-  // Brush-assisted foreground detection
-  // =====================
-  function detectForegroundBrush(rgba, w, h, bMask, bgCenters, fgCenters) {
-    var fg = new Uint8Array(w * h);
-    for (var i = 0; i < fg.length; i++) {
-      // Brushed pixels are always foreground
-      if (bMask[i]) { fg[i] = 1; continue; }
-      var off = i * 4;
-      var r = rgba[off], g = rgba[off + 1], b = rgba[off + 2];
-      // Distance to nearest background cluster (squared, faster)
-      var minBgSq = Infinity;
-      for (var c = 0; c < bgCenters.length; c++) {
-        var dr = r - bgCenters[c][0], dg = g - bgCenters[c][1], db = b - bgCenters[c][2];
-        var d = dr * dr + dg * dg + db * db;
-        if (d < minBgSq) minBgSq = d;
-      }
-      // Distance to nearest foreground cluster (squared)
-      var minFgSq = Infinity;
-      for (var f = 0; f < fgCenters.length; f++) {
-        var dr2 = r - fgCenters[f][0], dg2 = g - fgCenters[f][1], db2 = b - fgCenters[f][2];
-        var d2 = dr2 * dr2 + dg2 * dg2 + db2 * db2;
-        if (d2 < minFgSq) minFgSq = d2;
-      }
-      // Classify: foreground if closer to fg clusters (using squared distances to avoid sqrt)
-      // Threshold 0.5 = neutral boundary, pixel must be closer to fg than bg
-      if (minFgSq < minBgSq) fg[i] = 1;
-    }
-    return fg;
-  }
-
-  function brushCircle(mask, w, h, cx, cy, r) {
-    var r2 = r * r;
-    var x0 = Math.max(0, Math.floor(cx - r));
-    var x1 = Math.min(w - 1, Math.ceil(cx + r));
-    var y0 = Math.max(0, Math.floor(cy - r));
-    var y1 = Math.min(h - 1, Math.ceil(cy + r));
-    for (var y = y0; y <= y1; y++) {
-      for (var x = x0; x <= x1; x++) {
-        var dx = x - cx, dy = y - cy;
-        if (dx * dx + dy * dy <= r2) mask[y * w + x] = 1;
-      }
-    }
-  }
-
-  function brushLine(mask, w, h, x0, y0, x1, y1, r) {
-    var dx = x1 - x0, dy = y1 - y0;
-    var dist = Math.sqrt(dx * dx + dy * dy);
-    var steps = Math.max(1, Math.ceil(dist / Math.max(1, r * 0.5)));
-    for (var i = 0; i <= steps; i++) {
-      var t = i / steps;
-      brushCircle(mask, w, h, x0 + dx * t, y0 + dy * t, r);
-    }
-  }
-
-  function drawBrushStrokes(canvasId) {
-    if (brushStrokes.length === 0) return;
-    var canvas = $(canvasId);
-    var ctx = canvas.getContext('2d');
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    for (var s = 0; s < brushStrokes.length; s++) {
-      var stroke = brushStrokes[s];
-      var strokeR = stroke[0].r || 10;
-      ctx.strokeStyle = 'rgba(50,205,50,0.35)';
-      ctx.lineWidth = strokeR * 2;
-      if (stroke.length < 2) {
-        ctx.beginPath();
-        ctx.arc(stroke[0].x, stroke[0].y, strokeR, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(50,205,50,0.35)';
-        ctx.fill();
-        continue;
-      }
-      ctx.beginPath();
-      ctx.moveTo(stroke[0].x, stroke[0].y);
-      for (var p = 1; p < stroke.length; p++) {
-        ctx.lineTo(stroke[p].x, stroke[p].y);
-      }
-      ctx.stroke();
-    }
   }
 
   // =====================

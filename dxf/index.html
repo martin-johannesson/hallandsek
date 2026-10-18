@@ -363,40 +363,19 @@
     <!-- Step 2: Adjust -->
     <div class="step-panel hidden" id="step-2">
       <h3>2. Hitta konturer</h3>
-      <div class="mode-selector" id="mode-selector">
-        <button class="mode-btn active" data-mode="object">Färg</button>
-        <button class="mode-btn" data-mode="brush">Pensel</button>
-      </div>
-      <p class="mode-hint" id="mode-hint">Separerar objekt från bakgrund via färganalys. Bakgrunden fylls in från bildkanterna. Justera känslighet tills objektet markeras.</p>
+      <p class="mode-hint">Separerar objekt från bakgrund automatiskt. Bakgrunden fylls in från bildkanterna. Justera tröskeln tills objektet markeras.</p>
       <div class="canvas-wrap">
         <canvas id="canvas-contour"></canvas>
       </div>
 
-      <!-- Object mode controls -->
-      <div id="object-controls">
-        <div class="controls-grid">
-          <div class="control-group">
-            <label>Tröskel-justering <span id="val-tolerance">40</span></label>
-            <input type="range" id="slider-tolerance" min="0" max="80" value="40">
-          </div>
-          <div class="control-group">
-            <label>Utfyllnad <span id="val-grow">3</span> px</label>
-            <input type="range" id="slider-grow" min="0" max="10" value="3">
-          </div>
+      <div class="controls-grid">
+        <div class="control-group">
+          <label>Tröskel-justering <span id="val-tolerance">40</span></label>
+          <input type="range" id="slider-tolerance" min="0" max="80" value="40">
         </div>
-      </div>
-
-      <!-- Brush mode controls -->
-      <div id="brush-controls" style="display:none">
-        <div class="controls-grid">
-          <div class="control-group">
-            <label>Penselbredd <span id="val-brush-width">30</span> px</label>
-            <input type="range" id="slider-brush-width" min="10" max="80" value="30">
-          </div>
-        </div>
-        <div style="margin-top:0.75rem; display:flex; gap:0.5rem">
-          <button class="btn btn-sm" id="btn-brush-undo">Ångra</button>
-          <button class="btn btn-sm" id="btn-brush-clear">Rensa allt</button>
+        <div class="control-group">
+          <label>Utfyllnad <span id="val-grow">3</span> px</label>
+          <input type="range" id="slider-grow" min="0" max="10" value="3">
         </div>
       </div>
 
